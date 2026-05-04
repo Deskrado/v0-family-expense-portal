@@ -40,7 +40,7 @@ import {
 
 interface TransactionListProps {
   transactions: Transaction[]
-  type: "expense" | "income"
+  type: "expense" | "income" | "all"
   isLoading?: boolean
 }
 
@@ -75,9 +75,17 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
     }
   }
 
-  const title = type === "expense" ? "Gastos" : "Ingresos"
-  const newUrl = type === "expense" ? "/dashboard/gastos/nuevo" : "/dashboard/ingresos/nuevo"
-  const editUrl = type === "expense" ? "/dashboard/gastos" : "/dashboard/ingresos"
+  const title = type === "expense" ? "Gastos" : type === "income" ? "Ingresos" : "Transacciones"
+  const newUrl = type === "expense"
+    ? "/dashboard/gastos/nuevo"
+    : type === "income"
+      ? "/dashboard/ingresos/nuevo"
+      : "/dashboard/transacciones/nuevo"
+  const editUrl = type === "expense"
+    ? "/dashboard/gastos"
+    : type === "income"
+      ? "/dashboard/ingresos"
+      : "/dashboard/transacciones"
 
   const paymentMethodLabels: Record<string, string> = {
     cash: "Efectivo",
@@ -129,7 +137,8 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                     <TableHead>Descripción</TableHead>
                     <TableHead>Categoría</TableHead>
                     <TableHead>Grupo</TableHead>
-                    {type === "expense" && <TableHead>Método</TableHead>}
+                    {type === "all" && <TableHead>Tipo</TableHead>}
+                    {(type === "expense" || type === "all") && <TableHead>Metodo</TableHead>}
                     <TableHead className="text-right">Previsto</TableHead>
                     <TableHead className="text-right">Real</TableHead>
                     <TableHead className="text-right">Difer.</TableHead>
@@ -141,7 +150,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                     const budgeted = Number(transaction.budgeted_amount || transaction.amount)
                     const actual = Number(transaction.amount)
                     const difference = actual - budgeted
-                    const currencyCode = transaction.currency?.code || "ARS"
+                    const currency = transaction.currency || null
 
                     return (
                       <TableRow key={transaction.id}>
@@ -160,7 +169,14 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                         </TableCell>
                         <TableCell>{transaction.category?.name || "-"}</TableCell>
                         <TableCell>{transaction.group?.name || "-"}</TableCell>
-                        {type === "expense" && (
+                        {type === "all" && (
+                          <TableCell>
+                            <Badge variant={transaction.type === "expense" ? "destructive" : "secondary"}>
+                              {transaction.type === "expense" ? "Gasto" : "Ingreso"}
+                            </Badge>
+                          </TableCell>
+                        )}
+                        {(type === "expense" || type === "all") && (
                           <TableCell>
                             {transaction.payment_method 
                               ? paymentMethodLabels[transaction.payment_method] 
@@ -168,18 +184,18 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                           </TableCell>
                         )}
                         <TableCell className="text-right font-mono">
-                          {formatCurrency(budgeted, currencyCode)}
+                          {formatCurrency(budgeted, currency)}
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {formatCurrency(actual, currencyCode)}
+                          {formatCurrency(actual, currency)}
                         </TableCell>
                         <TableCell className={`text-right font-mono ${
-                          type === "expense" 
+                          transaction.type === "expense"
                             ? difference > 0 ? "text-destructive" : difference < 0 ? "text-green-600" : ""
                             : difference < 0 ? "text-destructive" : difference > 0 ? "text-green-600" : ""
                         }`}>
                           {difference !== 0 && (difference > 0 ? "+" : "")}
-                          {formatCurrency(difference, currencyCode)}
+                          {formatCurrency(difference, currency)}
                         </TableCell>
                         <TableCell>
                           <DropdownMenu>

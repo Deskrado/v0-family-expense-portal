@@ -7,7 +7,7 @@ import { TransactionForm } from "@/components/transactions/transaction-form"
 import { Loader2 } from "lucide-react"
 import type { Transaction } from "@/lib/types"
 
-export default function EditGastoPage() {
+export default function EditTransaccionPage() {
   const params = useParams()
   const [transaction, setTransaction] = useState<Transaction | null>(null)
   const [loading, setLoading] = useState(true)
@@ -40,14 +40,16 @@ export default function EditGastoPage() {
   if (!transaction) {
     return (
       <div className="text-center py-12 text-muted-foreground">
-        Gasto no encontrado
+        Transaccion no encontrada
       </div>
     )
   }
 
   return (
     <TransactionForm
-      type="expense"
+      type={transaction.type}
+      backUrl="/dashboard/transacciones"
+      redirectUrl="/dashboard/transacciones"
       initialData={{
         id: transaction.id,
         description: transaction.description,

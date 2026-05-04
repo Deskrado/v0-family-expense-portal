@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useForm } from "react-hook-form"
@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useCategories, useGroups, useCurrencies } from "@/components/dashboard/use-dashboard-data"
+import { useCategories, useGroups, useCurrencies, useCreditCards } from "@/components/dashboard/use-dashboard-data"
 import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
@@ -33,6 +33,7 @@ const transactionSchema = z.object({
   group_id: z.string().optional(),
   transaction_date: z.string().min(1, "La fecha es requerida"),
   payment_method: z.enum(["cash", "debit", "credit", "transfer"]).optional(),
+  credit_card_id: z.string().optional(),
   is_recurring: z.boolean().default(false),
   notes: z.string().optional(),
 })
@@ -42,9 +43,11 @@ type TransactionFormData = z.infer<typeof transactionSchema>
 interface TransactionFormProps {
   type: "expense" | "income"
   initialData?: Partial<TransactionFormData> & { id?: string }
+  backUrl?: string
+  redirectUrl?: string
 }
 
-export function TransactionForm({ type, initialData }: TransactionFormProps) {
+export function TransactionForm({ type, initialData, backUrl, redirectUrl }: TransactionFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -52,6 +55,7 @@ export function TransactionForm({ type, initialData }: TransactionFormProps) {
   const { data: categories } = useCategories()
   const { data: groups } = useGroups()
   const { data: currencies } = useCurrencies()
+  const { data: creditCards } = useCreditCards()
   
   const filteredCategories = categories?.filter((c) => c.type === type) || []
   const defaultCurrency = currencies?.find((c) => c.code === "ARS")
@@ -73,12 +77,21 @@ export function TransactionForm({ type, initialData }: TransactionFormProps) {
       group_id: initialData?.group_id || "",
       transaction_date: initialData?.transaction_date || new Date().toISOString().split("T")[0],
       payment_method: initialData?.payment_method || undefined,
+      credit_card_id: initialData?.credit_card_id || "",
       is_recurring: initialData?.is_recurring || false,
       notes: initialData?.notes || "",
     },
   })
 
   const isRecurring = watch("is_recurring")
+  const selectedCurrencyId = watch("currency_id")
+  const paymentMethod = watch("payment_method")
+
+  useEffect(() => {
+    if (!selectedCurrencyId && defaultCurrency?.id) {
+      setValue("currency_id", defaultCurrency.id)
+    }
+  }, [defaultCurrency?.id, selectedCurrencyId, setValue])
 
   const onSubmit = async (data: TransactionFormData) => {
     setIsSubmitting(true)
@@ -100,6 +113,7 @@ export function TransactionForm({ type, initialData }: TransactionFormProps) {
         category_id: data.category_id || null,
         group_id: data.group_id || null,
         payment_method: data.payment_method || null,
+        credit_card_id: data.payment_method === "credit" ? data.credit_card_id || null : null,
         budgeted_amount: data.budgeted_amount || data.amount,
       }
 
@@ -121,7 +135,7 @@ export function TransactionForm({ type, initialData }: TransactionFormProps) {
       // Revalidate data
       mutate((key) => typeof key === "string" && key.startsWith("transactions"))
       
-      router.push("/dashboard")
+      router.push(redirectUrl || "/dashboard")
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar")
@@ -131,14 +145,14 @@ export function TransactionForm({ type, initialData }: TransactionFormProps) {
   }
 
   const title = type === "expense" ? "Gasto" : "Ingreso"
-  const backUrl = type === "expense" ? "/dashboard/gastos" : "/dashboard/ingresos"
+  const resolvedBackUrl = backUrl || (type === "expense" ? "/dashboard/gastos" : "/dashboard/ingresos")
 
   return (
     <Card className="max-w-2xl mx-auto">
       <CardHeader>
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href={backUrl}>
+            <Link href={resolvedBackUrl}>
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
@@ -271,22 +285,45 @@ export function TransactionForm({ type, initialData }: TransactionFormProps) {
           </div>
 
           {type === "expense" && (
-            <div className="space-y-2">
-              <Label htmlFor="payment_method">Método de Pago</Label>
-              <Select
-                value={watch("payment_method")}
-                onValueChange={(value) => setValue("payment_method", value as "cash" | "debit" | "credit" | "transfer")}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar método" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Efectivo</SelectItem>
-                  <SelectItem value="debit">Débito</SelectItem>
-                  <SelectItem value="credit">Crédito</SelectItem>
-                  <SelectItem value="transfer">Transferencia</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="payment_method">Metodo de pago</Label>
+                <Select
+                  value={watch("payment_method")}
+                  onValueChange={(value) => setValue("payment_method", value as "cash" | "debit" | "credit" | "transfer")}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar metodo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Efectivo</SelectItem>
+                    <SelectItem value="debit">Debito</SelectItem>
+                    <SelectItem value="credit">Credito</SelectItem>
+                    <SelectItem value="transfer">Transferencia</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {paymentMethod === "credit" && (
+                <div className="space-y-2">
+                  <Label htmlFor="credit_card_id">Tarjeta</Label>
+                  <Select
+                    value={watch("credit_card_id")}
+                    onValueChange={(value) => setValue("credit_card_id", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar tarjeta" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {creditCards?.filter((card) => card.is_active).map((card) => (
+                        <SelectItem key={card.id} value={card.id}>
+                          {card.name}{card.last_four ? ` **** ${card.last_four}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           )}
 

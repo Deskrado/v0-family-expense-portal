@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/client"
 import useSWR from "swr"
 import { useDashboard } from "./dashboard-context"
-import type { Transaction, Category, Group, Currency, CreditCardPurchase } from "@/lib/types"
+import type { Transaction, Category, Group, Currency, CreditCard, CreditCardPurchase } from "@/lib/types"
 
 const supabase = createClient()
 
@@ -22,7 +22,7 @@ export function useCategories() {
   return useSWR<Category[]>("categories", async () => {
     const { data, error } = await supabase
       .from("categories")
-      .select("*")
+      .select("*, group:groups(*)")
       .order("name")
     if (error) throw error
     return data || []
@@ -34,6 +34,17 @@ export function useGroups() {
     const { data, error } = await supabase
       .from("groups")
       .select("*")
+      .order("name")
+    if (error) throw error
+    return data || []
+  })
+}
+
+export function useCreditCards() {
+  return useSWR<CreditCard[]>("credit-cards", async () => {
+    const { data, error } = await supabase
+      .from("credit_cards")
+      .select("*, currency:currencies(*)")
       .order("name")
     if (error) throw error
     return data || []
@@ -96,7 +107,7 @@ export function useCreditCardPurchases() {
       .from("credit_card_purchases")
       .select(`
         *,
-        credit_card:credit_cards(*),
+        credit_card:credit_cards(*, currency:currencies(*)),
         category:categories(*)
       `)
       .eq("is_active", true)

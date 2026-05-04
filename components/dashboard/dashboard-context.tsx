@@ -6,6 +6,8 @@ import { getCurrentMonth, getCurrentYear } from '@/lib/currency'
 interface DashboardContextType {
   currentMonth: number
   currentYear: number
+  selectedMonth: number
+  selectedYear: number
   setMonthYear: (month: number, year: number) => void
 }
 
@@ -33,7 +35,15 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
   }, [])
 
   return (
-    <DashboardContext.Provider value={{ currentMonth, currentYear, setMonthYear }}>
+    <DashboardContext.Provider
+      value={{
+        currentMonth,
+        currentYear,
+        selectedMonth: currentMonth,
+        selectedYear: currentYear,
+        setMonthYear,
+      }}
+    >
       {children}
     </DashboardContext.Provider>
   )
