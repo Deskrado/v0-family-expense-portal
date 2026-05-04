@@ -19,6 +19,7 @@ export default function EditIngresoPage() {
         .from("transactions")
         .select("*")
         .eq("id", params.id)
+        .eq("type", "income")
         .single()
 
       if (!error && data) {

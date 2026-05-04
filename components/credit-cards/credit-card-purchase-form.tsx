@@ -47,6 +47,14 @@ export function CreditCardPurchaseForm() {
       setError("Completa tarjeta, descripcion y monto total")
       return
     }
+    if (!form.start_date) {
+      setError("Selecciona la fecha de inicio")
+      return
+    }
+    if (!Number.isInteger(Number(form.total_installments)) || Number(form.total_installments) < 1) {
+      setError("La cantidad de cuotas debe ser mayor o igual a 1")
+      return
+    }
 
     setIsSubmitting(true)
     setError(null)

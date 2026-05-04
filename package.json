@@ -11,7 +11,8 @@
     "db:migrate": "node scripts/supabase-migrate.mjs push",
     "db:migrate:dry-run": "node scripts/supabase-migrate.mjs dry-run",
     "db:migrate:local": "node scripts/supabase-migrate.mjs local",
-    "db:reset:local": "node scripts/supabase-migrate.mjs reset"
+    "db:reset:local": "node scripts/supabase-migrate.mjs reset",
+    "db:smoke": "node scripts/supabase-smoke-test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

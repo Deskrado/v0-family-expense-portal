@@ -54,6 +54,9 @@ export function SettingsManagement() {
     setMessage(null)
 
     try {
+      if (Number(form.monthly_savings_target) < 0 || Number(form.annual_savings_target) < 0) {
+        throw new Error("Las metas de ahorro no pueden ser negativas")
+      }
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error("No estas autenticado")

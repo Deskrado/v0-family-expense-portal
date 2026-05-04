@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useCurrencies, useSavingsGoals } from "@/components/dashboard/use-dashboard-data"
+import { useCurrencies, useSavingsGoals, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
 import type { SavingsGoal } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
@@ -77,6 +77,7 @@ function goalToForm(goal: SavingsGoal): GoalForm {
 export function SavingsManagement() {
   const { data: goals, isLoading } = useSavingsGoals()
   const { data: currencies } = useCurrencies()
+  const { data: settings } = useUserSettings()
   const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<SavingsGoal | null>(null)
@@ -84,8 +85,8 @@ export function SavingsManagement() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const defaultCurrency = currencies?.find((currency) => currency.code === "ARS") || currencies?.[0] || null
-  const defaultCurrencyId = defaultCurrency?.id || ""
+  const defaultCurrency = settings?.default_currency || currencies?.find((currency) => currency.code === "ARS") || currencies?.[0] || null
+  const defaultCurrencyId = settings?.default_currency_id || defaultCurrency?.id || ""
   const visibleGoals = useMemo(() => {
     const query = search.toLowerCase()
     return (goals || []).filter((goal) => goal.name.toLowerCase().includes(query))
@@ -119,6 +120,10 @@ export function SavingsManagement() {
   const saveGoal = async () => {
     if (!form.name.trim() || Number(form.target_amount) <= 0 || Number(form.current_amount) < 0) {
       setError("Completa nombre, meta y monto actual")
+      return
+    }
+    if (form.monthly_target && Number(form.monthly_target) < 0) {
+      setError("La meta mensual no puede ser negativa")
       return
     }
 
@@ -215,6 +220,9 @@ export function SavingsManagement() {
             <div className="py-8 text-center text-muted-foreground">No hay metas registradas</div>
           ) : (
             <div className="overflow-x-auto">
+              {error && !dialogOpen && (
+                <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow>

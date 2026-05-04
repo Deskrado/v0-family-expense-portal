@@ -5,6 +5,8 @@ export interface Currency {
   symbol: string
   decimal_separator: string
   thousand_separator: string
+  decimal_places?: number
+  is_active?: boolean
 }
 
 export interface Group {
@@ -13,6 +15,10 @@ export interface Group {
   name: string
   description: string | null
   color: string
+  family_id?: string | null
+  sort_order?: number
+  archived_at?: string | null
+  updated_at?: string
   created_at: string
 }
 
@@ -25,6 +31,11 @@ export interface Category {
   icon: string | null
   parent_id: string | null
   group_id: string | null
+  family_id?: string | null
+  sort_order?: number
+  is_active?: boolean
+  archived_at?: string | null
+  updated_at?: string
   created_at: string
   group?: Group
 }
@@ -39,7 +50,11 @@ export interface CreditCard {
   closing_day: number | null
   due_day: number | null
   currency_id: string | null
+  family_id?: string | null
+  owner_user_id?: string | null
+  notes?: string | null
   is_active: boolean
+  updated_at?: string
   created_at: string
   currency?: Currency
 }
@@ -58,6 +73,13 @@ export interface Transaction {
   is_recurring: boolean
   payment_method: 'cash' | 'debit' | 'credit' | 'transfer' | null
   credit_card_id: string | null
+  family_id?: string | null
+  created_by?: string | null
+  credit_card_purchase_id?: string | null
+  installment_number?: number | null
+  metadata?: Record<string, unknown>
+  archived_at?: string | null
+  updated_at?: string
   notes: string | null
   created_at: string
   category?: Category
@@ -77,6 +99,10 @@ export interface CreditCardPurchase {
   current_installment: number
   start_date: string
   category_id: string | null
+  family_id?: string | null
+  currency_id?: string | null
+  notes?: string | null
+  updated_at?: string
   is_active: boolean
   created_at: string
   credit_card?: CreditCard
@@ -88,6 +114,9 @@ export interface Budget {
   user_id: string
   category_id: string | null
   group_id: string | null
+  family_id?: string | null
+  notes?: string | null
+  updated_at?: string
   month: number
   year: number
   budgeted_amount: number
@@ -106,6 +135,12 @@ export interface Investment {
   initial_amount: number
   current_value: number
   currency_id: string | null
+  family_id?: string | null
+  created_by?: string | null
+  institution?: string | null
+  ticker?: string | null
+  quantity?: number | null
+  updated_at?: string
   start_date: string
   end_date: string | null
   interest_rate: number | null
@@ -124,6 +159,11 @@ export interface SavingsGoal {
   currency_id: string | null
   target_date: string | null
   monthly_target: number | null
+  family_id?: string | null
+  created_by?: string | null
+  completed_at?: string | null
+  notes?: string | null
+  updated_at?: string
   is_completed: boolean
   created_at: string
   currency?: Currency
@@ -135,12 +175,14 @@ export interface ExchangeRate {
   to_currency_id: string
   rate: number
   date: string
+  source?: string | null
   created_at: string
 }
 
 export interface MonthlySavings {
   id: string
   user_id: string
+  family_id?: string | null
   month: number
   year: number
   total_income: number

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useCreditCardPurchases, useCreditCards, useCurrencies } from "@/components/dashboard/use-dashboard-data"
+import { useCreditCardPurchases, useCreditCards, useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
 import type { CreditCard } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
@@ -81,6 +81,7 @@ function cardToForm(card: CreditCard): CardFormState {
 export function CreditCardManagement() {
   const { data: cards, isLoading } = useCreditCards()
   const { data: currencies } = useCurrencies()
+  const { data: settings } = useUserSettings()
   const { data: purchases, isLoading: purchasesLoading } = useCreditCardPurchases()
   const [search, setSearch] = useState("")
   const [form, setForm] = useState<CardFormState>(emptyCardForm)
@@ -96,7 +97,7 @@ export function CreditCardManagement() {
     )
   }, [cards, search])
 
-  const defaultCurrencyId = currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
+  const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
 
   const openNewDialog = () => {
     setEditingCard(null)
@@ -115,6 +116,24 @@ export function CreditCardManagement() {
   const saveCard = async () => {
     if (!form.name.trim()) {
       setError("El nombre es requerido")
+      return
+    }
+    if (form.last_four && !/^[0-9]{4}$/.test(form.last_four)) {
+      setError("Los ultimos 4 digitos deben ser numericos")
+      return
+    }
+    if (form.credit_limit && Number(form.credit_limit) < 0) {
+      setError("El limite no puede ser negativo")
+      return
+    }
+    const closingDay = Number(form.closing_day)
+    const dueDay = Number(form.due_day)
+    if (form.closing_day && (closingDay < 1 || closingDay > 31)) {
+      setError("El dia de cierre debe estar entre 1 y 31")
+      return
+    }
+    if (form.due_day && (dueDay < 1 || dueDay > 31)) {
+      setError("El dia de vencimiento debe estar entre 1 y 31")
       return
     }
 
@@ -145,6 +164,7 @@ export function CreditCardManagement() {
       if (result.error) throw result.error
 
       mutate("credit-cards")
+      mutate("credit-card-purchases")
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la tarjeta")
@@ -160,9 +180,12 @@ export function CreditCardManagement() {
       .update({ is_active: isActive })
       .eq("id", card.id)
 
-    if (!error) {
-      mutate("credit-cards")
+    if (error) {
+      setError(error.message)
+      return
     }
+    mutate("credit-cards")
+    mutate("credit-card-purchases")
   }
 
   return (
@@ -195,6 +218,9 @@ export function CreditCardManagement() {
           </div>
         </CardHeader>
         <CardContent>
+          {error && !dialogOpen && (
+            <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+          )}
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

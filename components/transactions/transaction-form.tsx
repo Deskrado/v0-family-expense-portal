@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useCategories, useGroups, useCurrencies, useCreditCards } from "@/components/dashboard/use-dashboard-data"
+import { useCategories, useGroups, useCurrencies, useCreditCards, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
@@ -56,9 +56,10 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
   const { data: groups } = useGroups()
   const { data: currencies } = useCurrencies()
   const { data: creditCards } = useCreditCards()
+  const { data: settings } = useUserSettings()
   
   const filteredCategories = categories?.filter((c) => c.type === type) || []
-  const defaultCurrency = currencies?.find((c) => c.code === "ARS")
+  const defaultCurrency = settings?.default_currency || currencies?.find((c) => c.code === "ARS") || currencies?.[0]
 
   const {
     register,
@@ -73,11 +74,11 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
       amount: initialData?.amount || undefined,
       budgeted_amount: initialData?.budgeted_amount || undefined,
       currency_id: initialData?.currency_id || defaultCurrency?.id || "",
-      category_id: initialData?.category_id || "",
-      group_id: initialData?.group_id || "",
+      category_id: initialData?.category_id || "__none",
+      group_id: initialData?.group_id || "__none",
       transaction_date: initialData?.transaction_date || new Date().toISOString().split("T")[0],
       payment_method: initialData?.payment_method || undefined,
-      credit_card_id: initialData?.credit_card_id || "",
+      credit_card_id: initialData?.credit_card_id || "__none",
       is_recurring: initialData?.is_recurring || false,
       notes: initialData?.notes || "",
     },
@@ -106,14 +107,19 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
         return
       }
 
+      if (data.payment_method === "credit" && (!data.credit_card_id || data.credit_card_id === "__none")) {
+        setError("Selecciona una tarjeta para pagos con credito")
+        return
+      }
+
       const transactionData = {
         ...data,
         type,
         user_id: user.id,
-        category_id: data.category_id || null,
-        group_id: data.group_id || null,
+        category_id: data.category_id === "__none" ? null : data.category_id || null,
+        group_id: data.group_id === "__none" ? null : data.group_id || null,
         payment_method: data.payment_method || null,
-        credit_card_id: data.payment_method === "credit" ? data.credit_card_id || null : null,
+        credit_card_id: data.payment_method === "credit" && data.credit_card_id !== "__none" ? data.credit_card_id || null : null,
         budgeted_amount: data.budgeted_amount || data.amount,
       }
 
@@ -255,6 +261,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__none">Sin categoria</SelectItem>
                   {filteredCategories.map((category) => (
                     <SelectItem key={category.id} value={category.id}>
                       {category.name}
@@ -274,6 +281,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
                   <SelectValue placeholder="Seleccionar grupo" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__none">Sin grupo</SelectItem>
                   {groups?.map((group) => (
                     <SelectItem key={group.id} value={group.id}>
                       {group.name}
@@ -315,6 +323,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
                       <SelectValue placeholder="Seleccionar tarjeta" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="__none">Sin tarjeta</SelectItem>
                       {creditCards?.filter((card) => card.is_active).map((card) => (
                         <SelectItem key={card.id} value={card.id}>
                           {card.name}{card.last_four ? ` **** ${card.last_four}` : ""}

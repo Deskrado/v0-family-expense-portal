@@ -177,6 +177,7 @@ export function CategoriesGroupsManagement() {
       if (result.error) throw result.error
 
       mutate("categories")
+      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
       setCategoryDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la categoria")
@@ -214,6 +215,7 @@ export function CategoriesGroupsManagement() {
 
       mutate("groups")
       mutate("categories")
+      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
       setGroupDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar el grupo")
@@ -228,10 +230,10 @@ export function CategoriesGroupsManagement() {
     const { error: deleteError } = await supabase.from("categories").delete().eq("id", category.id)
     if (deleteError) {
       setError(deleteError.message)
-      setCategoryDialogOpen(true)
       return
     }
     mutate("categories")
+    mutate((key) => typeof key === "string" && key.startsWith("transactions"))
   }
 
   const deleteGroup = async (group: Group) => {
@@ -240,11 +242,11 @@ export function CategoriesGroupsManagement() {
     const { error: deleteError } = await supabase.from("groups").delete().eq("id", group.id)
     if (deleteError) {
       setError(deleteError.message)
-      setGroupDialogOpen(true)
       return
     }
     mutate("groups")
     mutate("categories")
+    mutate((key) => typeof key === "string" && key.startsWith("transactions"))
   }
 
   const parentCandidates = (categories || []).filter(
@@ -270,6 +272,9 @@ export function CategoriesGroupsManagement() {
       </div>
 
       <Tabs defaultValue="categories" className="space-y-4">
+        {error && !categoryDialogOpen && !groupDialogOpen && (
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+        )}
         <TabsList>
           <TabsTrigger value="categories">Categorias</TabsTrigger>
           <TabsTrigger value="groups">Grupos</TabsTrigger>

@@ -48,6 +48,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
   const [searchQuery, setSearchQuery] = useState("")
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const filteredTransactions = transactions.filter((t) =>
     t.description.toLowerCase().includes(searchQuery.toLowerCase())
@@ -56,6 +57,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
   const handleDelete = async () => {
     if (!deleteId) return
     setIsDeleting(true)
+    setError(null)
 
     try {
       const supabase = createClient()
@@ -68,7 +70,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
 
       mutate((key) => typeof key === "string" && key.startsWith("transactions"))
     } catch (err) {
-      console.error("Error deleting transaction:", err)
+      setError(err instanceof Error ? err.message : "Error al eliminar la transaccion")
     } finally {
       setIsDeleting(false)
       setDeleteId(null)
@@ -120,6 +122,9 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
           </div>
         </CardHeader>
         <CardContent>
+          {error && (
+            <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+          )}
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

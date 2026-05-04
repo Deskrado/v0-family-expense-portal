@@ -19,6 +19,7 @@ export default function EditGastoPage() {
         .from("transactions")
         .select("*")
         .eq("id", params.id)
+        .eq("type", "expense")
         .single()
 
       if (!error && data) {

@@ -22,6 +22,7 @@ export function useCurrencies() {
     const { data, error } = await supabase
       .from("currencies")
       .select("*")
+      .eq("is_active", true)
       .order("code")
     if (error) throw error
     return data || []
@@ -33,6 +34,8 @@ export function useCategories() {
     const { data, error } = await supabase
       .from("categories")
       .select("*, group:groups(*)")
+      .eq("is_active", true)
+      .is("archived_at", null)
       .order("name")
     if (error) throw error
     return data || []
@@ -44,6 +47,7 @@ export function useGroups() {
     const { data, error } = await supabase
       .from("groups")
       .select("*")
+      .is("archived_at", null)
       .order("name")
     if (error) throw error
     return data || []
@@ -75,8 +79,10 @@ export function useMonthlyTransactions() {
           *,
           category:categories(*),
           group:groups(*),
-          currency:currencies(*)
+          currency:currencies(*),
+          credit_card:credit_cards(*)
         `)
+        .is("archived_at", null)
         .gte("transaction_date", startDate)
         .lte("transaction_date", endDate)
         .order("transaction_date", { ascending: false })
@@ -100,8 +106,10 @@ export function useYearlyTransactions() {
           *,
           category:categories(*),
           group:groups(*),
-          currency:currencies(*)
+          currency:currencies(*),
+          credit_card:credit_cards(*)
         `)
+        .is("archived_at", null)
         .gte("transaction_date", startDate)
         .lte("transaction_date", endDate)
         .order("transaction_date", { ascending: false })

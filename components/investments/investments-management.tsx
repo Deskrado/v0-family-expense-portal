@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useCurrencies, useInvestments } from "@/components/dashboard/use-dashboard-data"
+import { useCurrencies, useInvestments, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
 import type { Investment } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
@@ -87,6 +87,7 @@ function investmentToForm(investment: Investment): InvestmentForm {
 export function InvestmentsManagement() {
   const { data: investments, isLoading } = useInvestments()
   const { data: currencies } = useCurrencies()
+  const { data: settings } = useUserSettings()
   const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Investment | null>(null)
@@ -94,7 +95,7 @@ export function InvestmentsManagement() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const defaultCurrencyId = currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
+  const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
   const visibleInvestments = useMemo(() => {
     const query = search.toLowerCase()
     return (investments || []).filter((investment) =>
@@ -128,8 +129,16 @@ export function InvestmentsManagement() {
   }
 
   const saveInvestment = async () => {
-    if (!form.name.trim() || Number(form.initial_amount) <= 0 || Number(form.current_value) < 0) {
+    if (!form.name.trim() || Number(form.initial_amount) < 0 || Number(form.current_value) < 0) {
       setError("Completa nombre, monto inicial y valor actual")
+      return
+    }
+    if (!form.start_date) {
+      setError("Selecciona la fecha de inicio")
+      return
+    }
+    if (form.end_date && form.end_date < form.start_date) {
+      setError("La fecha de fin no puede ser anterior al inicio")
       return
     }
 
@@ -170,17 +179,20 @@ export function InvestmentsManagement() {
   }
 
   const deleteInvestment = async (investment: Investment) => {
-    if (!window.confirm(`Eliminar la inversion "${investment.name}"?`)) return
+    if (!window.confirm(`Cerrar la inversion "${investment.name}"?`)) return
     const supabase = createClient()
-    const { error: deleteError } = await supabase.from("investments").delete().eq("id", investment.id)
-    if (deleteError) {
-      setError(deleteError.message)
+    const { error: updateError } = await supabase
+      .from("investments")
+      .update({ is_active: false, end_date: investment.end_date || new Date().toISOString().split("T")[0] })
+      .eq("id", investment.id)
+    if (updateError) {
+      setError(updateError.message)
       return
     }
     mutate("investments")
   }
 
-  const defaultCurrency = currencies?.find((currency) => currency.code === "ARS") || currencies?.[0] || null
+  const defaultCurrency = settings?.default_currency || currencies?.find((currency) => currency.code === "ARS") || currencies?.[0] || null
 
   return (
     <div className="space-y-6">
@@ -228,6 +240,9 @@ export function InvestmentsManagement() {
           </div>
         </CardHeader>
         <CardContent>
+          {error && !dialogOpen && (
+            <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+          )}
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -277,7 +292,7 @@ export function InvestmentsManagement() {
                               </DropdownMenuItem>
                               <DropdownMenuItem className="text-destructive" onClick={() => deleteInvestment(investment)}>
                                 <Trash2 className="mr-2 h-4 w-4" />
-                                Eliminar
+                                Cerrar
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
