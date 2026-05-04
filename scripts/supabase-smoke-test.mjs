@@ -23,7 +23,7 @@ async function main() {
   const ids = {}
   let userId = null
 
-  const cleanup = async () => {
+    const cleanup = async () => {
     const order = [
       "transactions",
       "credit_card_purchases",
@@ -32,11 +32,14 @@ async function main() {
       "groups",
       "investments",
       "savings_goals",
+      "family_members",
+      "families",
       "user_settings",
     ]
     for (const table of order) {
       if (ids[table]) await admin.from(table).delete().eq("id", ids[table])
     }
+    if (ids.profiles) await admin.from("profiles").delete().eq("id", ids.profiles)
     if (userId) await admin.auth.admin.deleteUser(userId)
   }
 
@@ -60,9 +63,49 @@ async function main() {
       monthly_savings_target: 100,
       annual_savings_target: 1200,
       initial_balance: 10,
+      default_payment_method: "debit",
+      default_transaction_type: "expense",
+      dashboard_months_ahead: 6,
+      week_starts_on: 1,
+      date_format: "dd/MM/yyyy",
+      number_format: "es-AR",
+      compact_mode: false,
+      show_archived: false,
+      notify_card_due_days: 3,
+      notify_budget_threshold: 80,
+      auto_create_card_transactions: false,
     }, { onConflict: "user_id" }).select("*").single()
     if (settings.error) throw settings.error
     ids.user_settings = settings.data.id
+
+    const profile = await client.from("profiles").upsert({
+      id: userId,
+      full_name: "Smoke User",
+      phone: "123456",
+      locale: "es-AR",
+    }).select("*").single()
+    if (profile.error) throw profile.error
+    ids.profiles = profile.data.id
+
+    const family = await client.from("families").insert({
+      name: "Smoke Familia",
+      description: "Smoke test",
+      default_currency_id: currencyId,
+      timezone: "America/Argentina/Buenos_Aires",
+      month_start_day: 1,
+      created_by: userId,
+    }).select("*").single()
+    if (family.error) throw family.error
+    ids.families = family.data.id
+
+    const member = await client.from("family_members").insert({
+      family_id: family.data.id,
+      user_id: userId,
+      role: "owner",
+      is_active: true,
+    }).select("*").single()
+    if (member.error) throw member.error
+    ids.family_members = member.data.id
 
     const group = await client.from("groups").insert({ user_id: userId, name: "Smoke Grupo", color: "#2563eb" }).select("*").single()
     if (group.error) throw group.error
@@ -100,6 +143,8 @@ async function main() {
       client.from("investments").select("*, currency:currencies(*)").eq("id", ids.investments).single(),
       client.from("savings_goals").select("*, currency:currencies(*)").eq("id", ids.savings_goals).single(),
       client.from("user_settings").select("*, default_currency:currencies(*)").eq("id", ids.user_settings).single(),
+      client.from("profiles").select("*").eq("id", ids.profiles).single(),
+      client.from("family_members").select("*, family:families(*, default_currency:currencies(*))").eq("id", ids.family_members).single(),
     ])
     for (const check of checks) if (check.error) throw check.error
 

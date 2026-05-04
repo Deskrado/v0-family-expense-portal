@@ -9,6 +9,39 @@ export interface Currency {
   is_active?: boolean
 }
 
+export interface Profile {
+  id: string
+  full_name: string | null
+  avatar_url: string | null
+  phone?: string | null
+  locale: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Family {
+  id: string
+  name: string
+  description?: string | null
+  default_currency_id: string | null
+  timezone: string
+  month_start_day: number
+  created_by: string
+  created_at: string
+  updated_at: string
+  default_currency?: Currency | null
+}
+
+export interface FamilyMember {
+  id: string
+  family_id: string
+  user_id: string
+  role: 'owner' | 'admin' | 'member' | 'viewer'
+  is_active: boolean
+  joined_at: string
+  family?: Family
+}
+
 export interface Group {
   id: string
   user_id: string
@@ -199,6 +232,17 @@ export interface UserSettings {
   monthly_savings_target: number
   annual_savings_target: number
   initial_balance: number
+  default_payment_method?: 'cash' | 'debit' | 'credit' | 'transfer' | null
+  default_transaction_type?: 'expense' | 'income'
+  dashboard_months_ahead?: number
+  week_starts_on?: number
+  date_format?: string
+  number_format?: string
+  compact_mode?: boolean
+  show_archived?: boolean
+  notify_card_due_days?: number
+  notify_budget_threshold?: number
+  auto_create_card_transactions?: boolean
   created_at: string
   updated_at: string
   default_currency?: Currency
