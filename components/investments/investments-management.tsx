@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useCurrencies, useInvestments, useUserSettings } from "@/components/dashboard/use-dashboard-data"
+import { PortfolioIntegrations } from "@/components/investments/portfolio-integrations"
 import { formatCurrency } from "@/lib/currency"
 import type { Investment } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
@@ -39,6 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Loader2, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react"
 import { mutate } from "swr"
@@ -223,89 +225,102 @@ export function InvestmentsManagement() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle>Inversiones</CardTitle>
-            <div className="flex gap-2">
-              <div className="relative flex-1 sm:w-64">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Buscar..." value={search} onChange={(event) => setSearch(event.target.value)} className="pl-8" />
+      <Tabs defaultValue="manual" className="space-y-4">
+        <TabsList className="flex h-auto flex-wrap justify-start">
+          <TabsTrigger value="manual">Manual</TabsTrigger>
+          <TabsTrigger value="connected">Conectadas</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="manual">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle>Inversiones</CardTitle>
+                <div className="flex gap-2">
+                  <div className="relative flex-1 sm:w-64">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Buscar..." value={search} onChange={(event) => setSearch(event.target.value)} className="pl-8" />
+                  </div>
+                  <Button onClick={openNew}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nueva
+                  </Button>
+                </div>
               </div>
-              <Button onClick={openNew}>
-                <Plus className="mr-2 h-4 w-4" />
-                Nueva
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {error && !dialogOpen && (
-            <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
-          )}
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : visibleInvestments.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground">No hay inversiones registradas</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Inicio</TableHead>
-                    <TableHead className="text-right">Inicial</TableHead>
-                    <TableHead className="text-right">Actual</TableHead>
-                    <TableHead className="text-right">Resultado</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead className="w-10"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleInvestments.map((investment) => {
-                    const result = Number(investment.current_value) - Number(investment.initial_amount)
-                    return (
-                      <TableRow key={investment.id}>
-                        <TableCell className="font-medium">{investment.name}</TableCell>
-                        <TableCell>{investment.type.replace("_", " ")}</TableCell>
-                        <TableCell>{new Date(investment.start_date).toLocaleDateString("es-AR")}</TableCell>
-                        <TableCell className="text-right font-mono">{formatCurrency(Number(investment.initial_amount), investment.currency)}</TableCell>
-                        <TableCell className="text-right font-mono">{formatCurrency(Number(investment.current_value), investment.currency)}</TableCell>
-                        <TableCell className={`text-right font-mono ${result >= 0 ? "text-success" : "text-destructive"}`}>{formatCurrency(result, investment.currency)}</TableCell>
-                        <TableCell>
-                          <Badge variant={investment.is_active ? "secondary" : "outline"}>{investment.is_active ? "Activa" : "Cerrada"}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => openEdit(investment)}>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Editar
-                              </DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive" onClick={() => deleteInvestment(investment)}>
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Cerrar
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
+            </CardHeader>
+            <CardContent>
+              {error && !dialogOpen && (
+                <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+              )}
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : visibleInvestments.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground">No hay inversiones registradas</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nombre</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Inicio</TableHead>
+                        <TableHead className="text-right">Inicial</TableHead>
+                        <TableHead className="text-right">Actual</TableHead>
+                        <TableHead className="text-right">Resultado</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead className="w-10"></TableHead>
                       </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                    </TableHeader>
+                    <TableBody>
+                      {visibleInvestments.map((investment) => {
+                        const result = Number(investment.current_value) - Number(investment.initial_amount)
+                        return (
+                          <TableRow key={investment.id}>
+                            <TableCell className="font-medium">{investment.name}</TableCell>
+                            <TableCell>{investment.type.replace("_", " ")}</TableCell>
+                            <TableCell>{new Date(investment.start_date).toLocaleDateString("es-AR")}</TableCell>
+                            <TableCell className="text-right font-mono">{formatCurrency(Number(investment.initial_amount), investment.currency)}</TableCell>
+                            <TableCell className="text-right font-mono">{formatCurrency(Number(investment.current_value), investment.currency)}</TableCell>
+                            <TableCell className={`text-right font-mono ${result >= 0 ? "text-success" : "text-destructive"}`}>{formatCurrency(result, investment.currency)}</TableCell>
+                            <TableCell>
+                              <Badge variant={investment.is_active ? "secondary" : "outline"}>{investment.is_active ? "Activa" : "Cerrada"}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => openEdit(investment)}>
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Editar
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem className="text-destructive" onClick={() => deleteInvestment(investment)}>
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Cerrar
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="connected">
+          <PortfolioIntegrations />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

@@ -11,6 +11,10 @@ import type {
   CreditCard,
   CreditCardPurchase,
   Investment,
+  BrokerConnection,
+  BrokerPosition,
+  PortfolioSnapshot,
+  FxQuote,
   SavingsGoal,
   UserSettings,
 } from "@/lib/types"
@@ -141,6 +145,61 @@ export function useInvestments() {
       .from("investments")
       .select("*, currency:currencies(*)")
       .order("start_date", { ascending: false })
+    if (error) throw error
+    return data || []
+  })
+}
+
+export function useBrokerConnections() {
+  return useSWR<BrokerConnection[]>("broker-connections", async () => {
+    const { data, error } = await supabase
+      .from("broker_connections")
+      .select("*, provider:external_providers(*)")
+      .order("created_at", { ascending: false })
+    if (error) throw error
+    return data || []
+  })
+}
+
+export function useBrokerPositions() {
+  return useSWR<BrokerPosition[]>("broker-positions", async () => {
+    const { data, error } = await supabase
+      .from("broker_positions")
+      .select(`
+        *,
+        account:broker_accounts(*, connection:broker_connections(*)),
+        instrument:market_instruments(*),
+        currency:currencies(*)
+      `)
+      .order("observed_at", { ascending: false })
+    if (error) throw error
+    return data || []
+  })
+}
+
+export function usePortfolioSnapshots() {
+  return useSWR<PortfolioSnapshot[]>("portfolio-snapshots", async () => {
+    const { data, error } = await supabase
+      .from("portfolio_snapshots")
+      .select("*, account:broker_accounts(*), currency:currencies(*)")
+      .order("snapshot_at", { ascending: false })
+      .limit(24)
+    if (error) throw error
+    return data || []
+  })
+}
+
+export function useFxQuotes() {
+  return useSWR<FxQuote[]>("fx-quotes", async () => {
+    const { data, error } = await supabase
+      .from("fx_quotes")
+      .select(`
+        *,
+        base_currency:currencies!fx_quotes_base_currency_id_fkey(*),
+        quote_currency:currencies!fx_quotes_quote_currency_id_fkey(*)
+      `)
+      .order("observed_at", { ascending: false })
+      .limit(60)
     if (error) throw error
     return data || []
   })

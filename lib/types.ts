@@ -183,6 +183,125 @@ export interface Investment {
   currency?: Currency
 }
 
+export interface ExternalProvider {
+  id: string
+  code: string
+  name: string
+  kind: 'broker' | 'fx' | 'market_data'
+  base_url: string
+  sandbox_base_url: string | null
+  is_active: boolean
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface BrokerConnection {
+  id: string
+  user_id: string
+  family_id: string | null
+  provider_id: string
+  secret_id: string | null
+  display_name: string
+  environment: 'sandbox' | 'production'
+  status: 'active' | 'reauth_required' | 'disabled' | 'error'
+  scopes: string[]
+  external_account_hash: string | null
+  access_token_expires_at: string | null
+  last_sync_at: string | null
+  last_error: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  provider?: ExternalProvider | null
+}
+
+export interface BrokerAccount {
+  id: string
+  user_id: string
+  connection_id: string
+  external_account_id: string | null
+  account_number_last4: string | null
+  name: string
+  base_currency_id: string | null
+  status: string
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  connection?: BrokerConnection | null
+  base_currency?: Currency | null
+}
+
+export interface MarketInstrument {
+  id: string
+  provider_id: string | null
+  symbol: string
+  market: string | null
+  country: string | null
+  instrument_type: string
+  currency_id: string | null
+  name: string | null
+  provider_symbol: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  currency?: Currency | null
+  provider?: ExternalProvider | null
+}
+
+export interface BrokerPosition {
+  id: string
+  user_id: string
+  account_id: string
+  instrument_id: string | null
+  quantity: number
+  avg_cost: number | null
+  currency_id: string | null
+  market_value: number | null
+  price: number | null
+  observed_at: string
+  source: string
+  raw: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  account?: BrokerAccount | null
+  instrument?: MarketInstrument | null
+  currency?: Currency | null
+}
+
+export interface PortfolioSnapshot {
+  id: string
+  user_id: string
+  connection_id: string
+  account_id: string | null
+  snapshot_at: string
+  total_value: number
+  currency_id: string | null
+  source: string
+  raw_hash: string | null
+  raw: Record<string, unknown>
+  created_at: string
+  account?: BrokerAccount | null
+  currency?: Currency | null
+}
+
+export interface FxQuote {
+  id: string
+  base_currency_id: string
+  quote_currency_id: string
+  rate_type: string
+  bid: number | null
+  ask: number | null
+  mid: number | null
+  source: string
+  observed_at: string
+  valid_on: string
+  raw: Record<string, unknown>
+  created_at: string
+  base_currency?: Currency | null
+  quote_currency?: Currency | null
+}
+
 export interface SavingsGoal {
   id: string
   user_id: string
