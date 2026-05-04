@@ -150,6 +150,18 @@ export interface MonthlySavings {
   created_at: string
 }
 
+export interface UserSettings {
+  id: string
+  user_id: string
+  default_currency_id: string | null
+  monthly_savings_target: number
+  annual_savings_target: number
+  initial_balance: number
+  created_at: string
+  updated_at: string
+  default_currency?: Currency
+}
+
 export interface MonthlySummary {
   totalIncome: number
   totalExpenses: number

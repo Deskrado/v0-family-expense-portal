@@ -4,7 +4,7 @@ import { SummaryCards } from "@/components/dashboard/summary-cards"
 import { ExpenseIncomeTable } from "@/components/dashboard/expense-income-table"
 import { AnnualProjectionChart } from "@/components/dashboard/annual-projection-chart"
 import { SavingsOverview } from "@/components/dashboard/savings-overview"
-import { useCurrencies, useMonthlySummary, useMonthlyTransactions, useYearlyTransactions, useCreditCardPurchases } from "@/components/dashboard/use-dashboard-data"
+import { useCurrencies, useMonthlySummary, useMonthlyTransactions, useYearlyTransactions, useCreditCardPurchases, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { useDashboard } from "@/components/dashboard/dashboard-context"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
@@ -18,9 +18,10 @@ export default function DashboardPage() {
   const { data: yearlyTransactions, isLoading: yearlyLoading } = useYearlyTransactions()
   const { data: creditCardPurchases, isLoading: purchasesLoading } = useCreditCardPurchases()
   const { data: currencies } = useCurrencies()
+  const { data: settings } = useUserSettings()
 
   const isLoading = summaryLoading || transactionsLoading || yearlyLoading || purchasesLoading
-  const currency = currencies?.find((item) => item.code === "ARS") || currencies?.[0] || null
+  const currency = settings?.default_currency || currencies?.find((item) => item.code === "ARS") || currencies?.[0] || null
 
   // Process transactions for expense/income table
   const expensesByGroup: Record<string, GroupSummary> = {}
@@ -123,8 +124,8 @@ export default function DashboardPage() {
 
       {/* Summary Cards */}
       <SummaryCards
-        initialBalance={0}
-        finalBalance={summary.savings}
+        initialBalance={settings?.initial_balance || 0}
+        finalBalance={(settings?.initial_balance || 0) + summary.savings}
         totalIncome={summary.totalIncome}
         totalExpenses={summary.totalExpenses}
         budgetedIncome={summary.budgetedIncome}
@@ -162,9 +163,9 @@ export default function DashboardPage() {
         data={{
           currentMonth: summary.savings,
           previousMonth: previousMonthSavings,
-          monthlyTarget: 500000,
+          monthlyTarget: settings?.monthly_savings_target || 0,
           yearToDate: yearToDateSavings,
-          yearTarget: 6000000,
+          yearTarget: settings?.annual_savings_target || 0,
         }}
         currency={currency}
       />

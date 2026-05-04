@@ -3,7 +3,17 @@
 import { createClient } from "@/lib/supabase/client"
 import useSWR from "swr"
 import { useDashboard } from "./dashboard-context"
-import type { Transaction, Category, Group, Currency, CreditCard, CreditCardPurchase } from "@/lib/types"
+import type {
+  Transaction,
+  Category,
+  Group,
+  Currency,
+  CreditCard,
+  CreditCardPurchase,
+  Investment,
+  SavingsGoal,
+  UserSettings,
+} from "@/lib/types"
 
 const supabase = createClient()
 
@@ -114,6 +124,39 @@ export function useCreditCardPurchases() {
       .order("start_date", { ascending: false })
     if (error) throw error
     return data || []
+  })
+}
+
+export function useInvestments() {
+  return useSWR<Investment[]>("investments", async () => {
+    const { data, error } = await supabase
+      .from("investments")
+      .select("*, currency:currencies(*)")
+      .order("start_date", { ascending: false })
+    if (error) throw error
+    return data || []
+  })
+}
+
+export function useSavingsGoals() {
+  return useSWR<SavingsGoal[]>("savings-goals", async () => {
+    const { data, error } = await supabase
+      .from("savings_goals")
+      .select("*, currency:currencies(*)")
+      .order("target_date", { ascending: true, nullsFirst: false })
+    if (error) throw error
+    return data || []
+  })
+}
+
+export function useUserSettings() {
+  return useSWR<UserSettings | null>("user-settings", async () => {
+    const { data, error } = await supabase
+      .from("user_settings")
+      .select("*, default_currency:currencies(*)")
+      .maybeSingle()
+    if (error) throw error
+    return data || null
   })
 }
 
