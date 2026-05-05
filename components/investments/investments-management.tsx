@@ -112,6 +112,8 @@ type PortfolioRow = {
   savingsGoal?: SavingsGoal
 }
 
+const IOL_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-"
   return new Date(value).toLocaleString("es-AR", {
@@ -156,7 +158,7 @@ function shouldAutoSyncConnection(connection: BrokerConnection) {
   const lastSync = new Date(connection.last_sync_at).getTime()
   if (!Number.isFinite(lastSync)) return true
 
-  return Date.now() - lastSync > 5 * 60 * 1000
+  return Date.now() - lastSync > IOL_AUTO_SYNC_INTERVAL_MS
 }
 
 function getLatestFxRate(quotes: FxQuote[] | undefined, fromCode: string, toCode: string) {
@@ -433,12 +435,12 @@ export function InvestmentsManagement() {
         const reauthConnections = (connections || []).filter((connection) => connection.status === "reauth_required")
 
         if (reauthConnections.length > 0) {
-          setSyncNotice("IOL requiere reconectar la cuenta desde Configuracion > Integraciones.")
+          setSyncNotice("IOL quedo pausado y se muestra la ultima cartera guardada. Podes renovarlo desde Configuracion > Integraciones.")
         }
 
         const results = await Promise.allSettled([
           postJson("/api/market/fx/sync"),
-          ...staleConnections.map((connection) => postJson("/api/integrations/iol/sync", { connectionId: connection.id })),
+          ...staleConnections.map((connection) => postJson("/api/integrations/iol/sync", { connectionId: connection.id, mode: "auto" })),
         ])
 
         const rejected = results.filter((result) => result.status === "rejected")
@@ -450,7 +452,7 @@ export function InvestmentsManagement() {
         )
 
         if (requiresReconnect) {
-          setSyncNotice("IOL requiere reconectar la cuenta desde Configuracion > Integraciones.")
+          setSyncNotice("IOL quedo pausado y se muestra la ultima cartera guardada. Podes renovarlo desde Configuracion > Integraciones.")
         }
         if (otherError?.status === "rejected") {
           setError(otherError.reason instanceof Error ? otherError.reason.message : "No se pudo actualizar una cotizacion")

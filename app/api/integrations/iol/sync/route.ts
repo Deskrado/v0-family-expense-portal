@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
   let admin: ReturnType<typeof createAdminClient> | null = null
   let connectionIdForError: string | null = null
   let userIdForError: string | null = null
+  let syncMode: "auto" | "manual" = "manual"
 
   try {
     const supabase = await createClient()
@@ -27,7 +28,9 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
     userIdForError = user.id
 
-    const { connectionId } = await request.json()
+    const body = await request.json()
+    const { connectionId } = body
+    syncMode = body.mode === "auto" ? "auto" : "manual"
     if (!connectionId) return NextResponse.json({ error: "connectionId requerido" }, { status: 400 })
     connectionIdForError = connectionId
 
@@ -44,22 +47,67 @@ export async function POST(request: NextRequest) {
 
     let secret = decryptJson<IolSecret>(connection.secret)
     const expiresAt = connection.access_token_expires_at ? new Date(connection.access_token_expires_at).getTime() : 0
-    if (expiresAt - Date.now() < 60_000) {
-      const refreshed = await refreshIolToken({
-        refreshToken: secret.refresh_token,
-        baseUrl: secret.base_url,
-      })
-      secret = { ...refreshed, obtained_at: new Date().toISOString(), base_url: secret.base_url }
-      const encrypted = encryptJson(secret)
-      await admin.from("integration_secrets").update(encrypted).eq("id", connection.secret.id)
-      await admin
-        .from("broker_connections")
-        .update({
-          access_token_expires_at: new Date(Date.now() + Number(refreshed.expires_in || 900) * 1000).toISOString(),
-          status: "active",
-          last_error: null,
+    if (expiresAt && expiresAt - Date.now() < 2 * 60_000) {
+      try {
+        const refreshed = await refreshIolToken({
+          refreshToken: secret.refresh_token,
+          baseUrl: secret.base_url,
         })
-        .eq("id", connection.id)
+        secret = { ...refreshed, obtained_at: new Date().toISOString(), base_url: secret.base_url }
+        const encrypted = encryptJson(secret)
+        await admin.from("integration_secrets").update(encrypted).eq("id", connection.secret.id)
+        await admin
+          .from("broker_connections")
+          .update({
+            access_token_expires_at: new Date(Date.now() + Number(refreshed.expires_in || 900) * 1000).toISOString(),
+            status: "active",
+            last_error: null,
+          })
+          .eq("id", connection.id)
+      } catch (refreshError) {
+        const refreshMessage = refreshError instanceof Error ? refreshError.message : "IOL rechazo el refresh token"
+        const accessTokenStillUsable = expiresAt - Date.now() > 30_000
+
+        if (!accessTokenStillUsable && syncMode === "auto") {
+          await admin
+            .from("broker_connections")
+            .update({
+              last_error: "IOL no se actualizo automaticamente para evitar pedir reconexion en cada carga",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", connection.id)
+
+          await admin.from("integration_audit_events").insert({
+            user_id: user.id,
+            connection_id: connection.id,
+            event_type: "iol_sync",
+            status: "skipped",
+            message: refreshMessage,
+          })
+
+          return NextResponse.json(
+            {
+              ok: false,
+              skipped: true,
+              code: "IOL_AUTO_REFRESH_SKIPPED",
+              error: "IOL no se actualizo automaticamente. Se muestra la ultima cartera guardada.",
+            },
+            { status: 202 },
+          )
+        }
+
+        if (!accessTokenStillUsable) {
+          throw refreshError
+        }
+
+        await admin
+          .from("broker_connections")
+          .update({
+            last_error: "IOL rechazo el refresh, se uso el access token vigente",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", connection.id)
+      }
     }
 
     const raw = await fetchIolReadOnlyData(secret.base_url, secret.access_token)
@@ -162,7 +210,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, positions: positions.length, snapshotId: snapshot.id })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error al sincronizar IOL"
-    const requiresReconnect = message.includes("refresh token") || message.includes("(401)")
+    const authRejected = message.includes("refresh token") || message.includes("(401)")
+    const requiresReconnect = syncMode === "manual" && authRejected
+
+    if (syncMode === "auto" && authRejected && admin && connectionIdForError) {
+      await admin
+        .from("broker_connections")
+        .update({
+          last_error: "IOL no se actualizo automaticamente para evitar pedir reconexion en cada carga",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", connectionIdForError)
+
+      await admin.from("integration_audit_events").insert({
+        user_id: userIdForError,
+        connection_id: connectionIdForError,
+        event_type: "iol_sync",
+        status: "skipped",
+        message,
+      })
+
+      return NextResponse.json(
+        {
+          ok: false,
+          skipped: true,
+          code: "IOL_AUTO_REFRESH_SKIPPED",
+          error: "IOL no se actualizo automaticamente. Se muestra la ultima cartera guardada.",
+        },
+        { status: 202 },
+      )
+    }
+
     if (requiresReconnect && admin && connectionIdForError) {
       await admin
         .from("broker_connections")
