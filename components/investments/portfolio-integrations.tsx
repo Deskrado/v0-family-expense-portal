@@ -53,7 +53,7 @@ function statusVariant(status: BrokerConnection["status"]) {
 
 function statusLabel(status: BrokerConnection["status"]) {
   if (status === "active") return "Activa"
-  if (status === "reauth_required") return "Requiere reconexion"
+  if (status === "reauth_required") return "Requiere reconexión"
   if (status === "disabled") return "Deshabilitada"
   return "Error"
 }
@@ -363,7 +363,7 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="sandbox">Sandbox</SelectItem>
-                      <SelectItem value="production">Produccion</SelectItem>
+                      <SelectItem value="production">Producción</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

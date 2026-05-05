@@ -77,7 +77,7 @@ export function SavingsOverview({ data, currency }: SavingsOverviewProps) {
           </div>
 
           <div className="p-3 bg-muted rounded-lg">
-            <p className="text-xs text-muted-foreground">Acumulado del ano</p>
+            <p className="text-xs text-muted-foreground">Acumulado del año</p>
             <p className={cn(
               "text-lg font-semibold",
               data.yearToDate >= 0 ? "text-success" : "text-destructive"

@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
         .from("broker_connections")
         .update({
           status: "disabled",
-          last_error: "Duplicada por reconexion de la misma cuenta IOL",
+          last_error: "Duplicada por reconexión de la misma cuenta IOL",
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", user.id)

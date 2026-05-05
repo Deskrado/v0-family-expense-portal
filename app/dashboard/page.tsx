@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import Link from "next/link"
 import type { GroupSummary } from "@/lib/types"
+import { getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
 
 export default function DashboardPage() {
   const { selectedMonth, selectedYear } = useDashboard()
@@ -74,8 +75,7 @@ export default function DashboardPage() {
     
     if (yearlyTransactions) {
       yearlyTransactions.forEach((t) => {
-        const date = new Date(t.transaction_date)
-        if (date.getMonth() === i) {
+        if (getMonthIndexFromDateOnly(t.transaction_date) === i) {
           const projectedAmount = t.status === "rejected" ? 0 : Number(t.amount)
           if (t.type === "income") {
             monthData.income += projectedAmount
@@ -89,9 +89,8 @@ export default function DashboardPage() {
     // Add projected credit card installments for future months
     if (i >= selectedMonth - 1 && creditCardPurchases) {
       creditCardPurchases.forEach((purchase) => {
-        const startDate = new Date(purchase.start_date)
-        const startMonth = startDate.getMonth()
-        const startYear = startDate.getFullYear()
+        const startMonth = getMonthIndexFromDateOnly(purchase.start_date)
+        const startYear = getYearFromDateOnly(purchase.start_date)
         const monthsSinceStart = (selectedYear - startYear) * 12 + i - startMonth
         
         if (monthsSinceStart >= 0 && monthsSinceStart < purchase.total_installments) {

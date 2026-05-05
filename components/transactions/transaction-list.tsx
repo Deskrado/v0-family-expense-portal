@@ -27,6 +27,7 @@ import Link from "next/link"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { mutate } from "swr"
+import { dateOnlyToLocalDate } from "@/lib/date-only"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -178,7 +179,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                     <TableHead>Categoría</TableHead>
                     <TableHead>Grupo</TableHead>
                     {type === "all" && <TableHead>Tipo</TableHead>}
-                    {(type === "expense" || type === "all") && <TableHead>Metodo</TableHead>}
+                    {(type === "expense" || type === "all") && <TableHead>Método</TableHead>}
                     <TableHead className="text-right">Previsto</TableHead>
                     <TableHead className="text-right">Real</TableHead>
                     <TableHead className="text-right">Difer.</TableHead>
@@ -196,7 +197,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                     return (
                       <TableRow key={transaction.id}>
                         <TableCell className="whitespace-nowrap">
-                          {format(new Date(transaction.transaction_date), "dd/MM/yyyy", { locale: es })}
+                          {format(dateOnlyToLocalDate(transaction.transaction_date) || new Date(transaction.transaction_date), "dd/MM/yyyy", { locale: es })}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">

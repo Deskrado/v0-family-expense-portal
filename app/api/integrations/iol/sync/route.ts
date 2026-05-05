@@ -65,14 +65,14 @@ export async function POST(request: NextRequest) {
           })
           .eq("id", connection.id)
       } catch (refreshError) {
-        const refreshMessage = refreshError instanceof Error ? refreshError.message : "IOL rechazo el refresh token"
+        const refreshMessage = refreshError instanceof Error ? refreshError.message : "IOL rechazó el refresh token"
         const accessTokenStillUsable = expiresAt - Date.now() > 30_000
 
         if (!accessTokenStillUsable && syncMode === "auto") {
           await admin
             .from("broker_connections")
             .update({
-              last_error: "IOL no se actualizo automaticamente para evitar pedir reconexion en cada carga",
+              last_error: "IOL no se actualizó automáticamente para evitar pedir reconexión en cada carga",
               updated_at: new Date().toISOString(),
             })
             .eq("id", connection.id)
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
               ok: false,
               skipped: true,
               code: "IOL_AUTO_REFRESH_SKIPPED",
-              error: "IOL no se actualizo automaticamente. Se muestra la ultima cartera guardada.",
+              error: "IOL no se actualizó automáticamente. Se muestra la última cartera guardada.",
             },
             { status: 202 },
           )
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
         await admin
           .from("broker_connections")
           .update({
-            last_error: "IOL rechazo el refresh, se uso el access token vigente",
+            last_error: "IOL rechazó el refresh, se usó el access token vigente",
             updated_at: new Date().toISOString(),
           })
           .eq("id", connection.id)
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
       await admin
         .from("broker_connections")
         .update({
-          last_error: "IOL no se actualizo automaticamente para evitar pedir reconexion en cada carga",
+          last_error: "IOL no se actualizó automáticamente para evitar pedir reconexión en cada carga",
           updated_at: new Date().toISOString(),
         })
         .eq("id", connectionIdForError)
@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
           ok: false,
           skipped: true,
           code: "IOL_AUTO_REFRESH_SKIPPED",
-          error: "IOL no se actualizo automaticamente. Se muestra la ultima cartera guardada.",
+          error: "IOL no se actualizó automáticamente. Se muestra la última cartera guardada.",
         },
         { status: 202 },
       )
@@ -256,14 +256,14 @@ export async function POST(request: NextRequest) {
         connection_id: connectionIdForError,
         event_type: "iol_sync",
         status: "reauth_required",
-        message: "IOL rechazo el refresh token. Reconecta la cuenta desde Configuracion.",
+        message: "IOL rechazó el refresh token. Reconecta la cuenta desde Configuración.",
       })
     }
 
     return NextResponse.json(
       {
         error: requiresReconnect
-          ? "IOL requiere reconectar la cuenta desde Configuracion > Integraciones"
+          ? "IOL requiere reconectar la cuenta desde Configuración > Integraciones"
           : message,
         code: requiresReconnect ? "IOL_REAUTH_REQUIRED" : "IOL_SYNC_ERROR",
       },

@@ -25,8 +25,8 @@ const navigation = [
   { name: 'Categorias', href: '/dashboard/categorias', icon: FolderOpen },
   { name: 'Inversiones', href: '/dashboard/inversiones', icon: TrendingUp },
   { name: 'Ahorros', href: '/dashboard/ahorros', icon: PiggyBank },
-  { name: 'Proyeccion', href: '/dashboard/proyeccion', icon: Wallet },
-  { name: 'Configuracion', href: '/dashboard/configuracion', icon: Settings },
+  { name: 'Proyección', href: '/dashboard/proyeccion', icon: Wallet },
+  { name: 'Configuración', href: '/dashboard/configuracion', icon: Settings },
 ]
 
 export function Sidebar() {

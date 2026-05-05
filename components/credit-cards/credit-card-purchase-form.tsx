@@ -44,7 +44,7 @@ export function CreditCardPurchaseForm() {
 
   const savePurchase = async () => {
     if (!form.credit_card_id || !form.description.trim() || Number(form.total_amount) <= 0) {
-      setError("Completa tarjeta, descripcion y monto total")
+      setError("Completa tarjeta, descripción y monto total")
       return
     }
     if (!form.start_date) {
@@ -141,7 +141,7 @@ export function CreditCardPurchaseForm() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="description">Descripcion</Label>
+          <Label htmlFor="description">Descripción</Label>
           <Input id="description" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
         </div>
 

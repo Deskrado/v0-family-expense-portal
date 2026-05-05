@@ -86,6 +86,8 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
 
   const isRecurring = watch("is_recurring")
   const selectedCurrencyId = watch("currency_id")
+  const selectedCategoryId = watch("category_id")
+  const selectedGroupId = watch("group_id")
   const paymentMethod = watch("payment_method")
 
   useEffect(() => {
@@ -93,6 +95,22 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
       setValue("currency_id", defaultCurrency.id)
     }
   }, [defaultCurrency?.id, selectedCurrencyId, setValue])
+
+  useEffect(() => {
+    if (!selectedCategoryId || selectedCategoryId === "__none") return
+    if (selectedGroupId && selectedGroupId !== "__none") return
+
+    const selectedCategory = filteredCategories.find((category) => category.id === selectedCategoryId)
+    if (selectedCategory?.group_id) {
+      setValue("group_id", selectedCategory.group_id)
+    }
+  }, [filteredCategories, selectedCategoryId, selectedGroupId, setValue])
+
+  const handleCategoryChange = (value: string) => {
+    setValue("category_id", value, { shouldDirty: true, shouldValidate: true })
+    const selectedCategory = filteredCategories.find((category) => category.id === value)
+    setValue("group_id", selectedCategory?.group_id || "__none", { shouldDirty: true, shouldValidate: true })
+  }
 
   const onSubmit = async (data: TransactionFormData) => {
     setIsSubmitting(true)
@@ -254,8 +272,8 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             <div className="space-y-2">
               <Label htmlFor="category_id">Categoría</Label>
               <Select
-                value={watch("category_id")}
-                onValueChange={(value) => setValue("category_id", value)}
+                value={selectedCategoryId}
+                onValueChange={handleCategoryChange}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar categoría" />
@@ -274,7 +292,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             <div className="space-y-2">
               <Label htmlFor="group_id">Grupo</Label>
               <Select
-                value={watch("group_id")}
+                value={selectedGroupId}
                 onValueChange={(value) => setValue("group_id", value)}
               >
                 <SelectTrigger>
@@ -295,7 +313,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
           {type === "expense" && (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="payment_method">Metodo de pago</Label>
+                <Label htmlFor="payment_method">Método de pago</Label>
                 <Select
                   value={watch("payment_method")}
                   onValueChange={(value) => setValue("payment_method", value as "cash" | "debit" | "credit" | "transfer")}
@@ -305,8 +323,8 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cash">Efectivo</SelectItem>
-                    <SelectItem value="debit">Debito</SelectItem>
-                    <SelectItem value="credit">Credito</SelectItem>
+                    <SelectItem value="debit">Débito</SelectItem>
+                    <SelectItem value="credit">Crédito</SelectItem>
                     <SelectItem value="transfer">Transferencia</SelectItem>
                   </SelectContent>
                 </Select>

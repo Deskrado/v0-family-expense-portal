@@ -435,7 +435,7 @@ export function InvestmentsManagement() {
         const reauthConnections = (connections || []).filter((connection) => connection.status === "reauth_required")
 
         if (reauthConnections.length > 0) {
-          setSyncNotice("IOL quedo pausado y se muestra la ultima cartera guardada. Podes renovarlo desde Configuracion > Integraciones.")
+          setSyncNotice("IOL quedó pausado y se muestra la última cartera guardada. Podés renovarlo desde Configuración > Integraciones.")
         }
 
         const results = await Promise.allSettled([
@@ -452,7 +452,7 @@ export function InvestmentsManagement() {
         )
 
         if (requiresReconnect) {
-          setSyncNotice("IOL quedo pausado y se muestra la ultima cartera guardada. Podes renovarlo desde Configuracion > Integraciones.")
+          setSyncNotice("IOL quedó pausado y se muestra la última cartera guardada. Podés renovarlo desde Configuración > Integraciones.")
         }
         if (otherError?.status === "rejected") {
           setError(otherError.reason instanceof Error ? otherError.reason.message : "No se pudo actualizar una cotizacion")

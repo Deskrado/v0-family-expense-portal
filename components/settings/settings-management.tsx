@@ -330,7 +330,7 @@ export function SettingsManagement() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2">
-        <h2 className="text-2xl font-semibold tracking-tight">Configuracion</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">Configuración</h2>
         <p className="text-sm text-muted-foreground">Preferencias personales, hogar familiar, alertas y comportamiento financiero.</p>
       </div>
 
@@ -370,9 +370,9 @@ export function SettingsManagement() {
                   <Select value={profileForm.locale} onValueChange={(value) => setProfileForm({ ...profileForm, locale: value })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="es-AR">Espanol Argentina</SelectItem>
-                      <SelectItem value="es-UY">Espanol Uruguay</SelectItem>
-                      <SelectItem value="es-CL">Espanol Chile</SelectItem>
+                      <SelectItem value="es-AR">Español Argentina</SelectItem>
+                      <SelectItem value="es-UY">Español Uruguay</SelectItem>
+                      <SelectItem value="es-CL">Español Chile</SelectItem>
                       <SelectItem value="en-US">English US</SelectItem>
                     </SelectContent>
                   </Select>
@@ -444,14 +444,14 @@ export function SettingsManagement() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Metodo de pago por defecto</Label>
+                    <Label>Método de pago por defecto</Label>
                     <Select value={settingsForm.default_payment_method} onValueChange={(value) => setSettingsForm({ ...settingsForm, default_payment_method: value })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none">Sin preferencia</SelectItem>
                         <SelectItem value="cash">Efectivo</SelectItem>
-                        <SelectItem value="debit">Debito</SelectItem>
-                        <SelectItem value="credit">Credito</SelectItem>
+                        <SelectItem value="debit">Débito</SelectItem>
+                        <SelectItem value="credit">Crédito</SelectItem>
                         <SelectItem value="transfer">Transferencia</SelectItem>
                       </SelectContent>
                     </Select>
@@ -529,7 +529,7 @@ export function SettingsManagement() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Descripcion</Label>
+                  <Label>Descripción</Label>
                   <Textarea value={familyForm.description} onChange={(event) => setFamilyForm({ ...familyForm, description: event.target.value })} />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">

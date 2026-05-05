@@ -29,7 +29,7 @@ export async function loginToIol(input: {
   })
 
   if (!response.ok) {
-    throw new Error(`IOL rechazo el login (${response.status})`)
+    throw new Error(`IOL rechazó el login (${response.status})`)
   }
 
   return response.json() as Promise<IolTokenResponse>
@@ -52,7 +52,7 @@ export async function refreshIolToken(input: {
   })
 
   if (!response.ok) {
-    throw new Error(`IOL rechazo el refresh token (${response.status})`)
+    throw new Error(`IOL rechazó el refresh token (${response.status})`)
   }
 
   return response.json() as Promise<IolTokenResponse>
@@ -185,7 +185,7 @@ export function parseIolPositions(raw: Record<string, unknown>) {
 
     return {
       symbol: symbol || name || "SIN-TICKER",
-      name: name || symbol || "Sin descripcion",
+      name: name || symbol || "Sin descripción",
       market: String(title.mercado || row.mercado || row.market || "IOL"),
       instrumentType: normalizeInstrumentType(title.tipo || row.tipo || row.type),
       quantity,

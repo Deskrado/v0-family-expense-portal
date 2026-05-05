@@ -105,6 +105,15 @@ export function RecurringIncomeManagement() {
   const incomeCategories = categories?.filter((category) => category.type === "income") || []
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
 
+  const handleCategoryChange = (value: string) => {
+    const selectedCategory = incomeCategories.find((category) => category.id === value)
+    setForm((current) => ({
+      ...current,
+      category_id: value,
+      group_id: selectedCategory?.group_id || "__none",
+    }))
+  }
+
   const totals = useMemo(() => {
     return (templates || []).reduce((total, template) => total + (template.is_active ? Number(template.amount) : 0), 0)
   }, [templates])
@@ -125,7 +134,7 @@ export function RecurringIncomeManagement() {
 
       const amount = Number(form.amount)
       const dayOfMonth = Number(form.day_of_month)
-      if (!form.description.trim()) throw new Error("Completa la descripcion")
+      if (!form.description.trim()) throw new Error("Completa la descripción")
       if (amount <= 0) throw new Error("El monto debe ser mayor a cero")
       const currencyId = form.currency_id || defaultCurrencyId
       if (!currencyId) throw new Error("Selecciona una moneda")
@@ -241,7 +250,7 @@ export function RecurringIncomeManagement() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Descripcion</Label>
+              <Label>Descripción</Label>
               <Input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Sueldo, monotributo..." />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -264,7 +273,7 @@ export function RecurringIncomeManagement() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Categoria</Label>
-                <Select value={form.category_id} onValueChange={(value) => setForm({ ...form, category_id: value })}>
+                <Select value={form.category_id} onValueChange={handleCategoryChange}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none">Sin categoria</SelectItem>
@@ -344,7 +353,7 @@ export function RecurringIncomeManagement() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Descripcion</TableHead>
+                      <TableHead>Descripción</TableHead>
                       <TableHead>Dia</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
                       <TableHead>Estado</TableHead>

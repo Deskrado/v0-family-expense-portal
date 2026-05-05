@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useCreditCardPurchases, useCreditCards, useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
+import { dateOnlyToLocalDate } from "@/lib/date-only"
 import type { CreditCard } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -119,7 +120,7 @@ export function CreditCardManagement() {
       return
     }
     if (form.last_four && !/^[0-9]{4}$/.test(form.last_four)) {
-      setError("Los ultimos 4 digitos deben ser numericos")
+      setError("Los últimos 4 dígitos deben ser numéricos")
       return
     }
     if (form.credit_limit && Number(form.credit_limit) < 0) {
@@ -318,7 +319,7 @@ export function CreditCardManagement() {
                     <TableRow key={purchase.id}>
                       <TableCell className="font-medium">{purchase.description}</TableCell>
                       <TableCell>{purchase.credit_card?.name || "-"}</TableCell>
-                      <TableCell>{new Date(purchase.start_date).toLocaleDateString("es-AR")}</TableCell>
+                      <TableCell>{(dateOnlyToLocalDate(purchase.start_date) || new Date(purchase.start_date)).toLocaleDateString("es-AR")}</TableCell>
                       <TableCell>{purchase.current_installment}/{purchase.total_installments}</TableCell>
                       <TableCell className="text-right font-mono">
                         {formatCurrency(Number(purchase.total_amount), purchase.credit_card?.currency)}

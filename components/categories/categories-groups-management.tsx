@@ -380,7 +380,7 @@ export function CategoriesGroupsManagement() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Nombre</TableHead>
-                        <TableHead>Descripcion</TableHead>
+                        <TableHead>Descripción</TableHead>
                         <TableHead className="text-right">Categorias</TableHead>
                         <TableHead className="w-10"></TableHead>
                       </TableRow>
@@ -520,7 +520,7 @@ export function CategoriesGroupsManagement() {
               <Input id="group-name" value={groupForm.name} onChange={(event) => setGroupForm({ ...groupForm, name: event.target.value })} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="group-description">Descripcion</Label>
+              <Label htmlFor="group-description">Descripción</Label>
               <Textarea id="group-description" value={groupForm.description} onChange={(event) => setGroupForm({ ...groupForm, description: event.target.value })} />
             </div>
             <div className="space-y-2">

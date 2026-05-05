@@ -8,6 +8,7 @@ import {
   useYearlyTransactions,
 } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency, getMonthName } from "@/lib/currency"
+import { getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -32,8 +33,7 @@ export function ProjectionDashboard() {
     const monthData = { month, year: selectedYear, income: 0, expenses: 0, installments: 0, savings: 0 }
 
     yearlyTransactions?.forEach((transaction) => {
-      const date = new Date(transaction.transaction_date)
-      if (date.getMonth() === index) {
+      if (getMonthIndexFromDateOnly(transaction.transaction_date) === index) {
         const projectedAmount = transaction.status === "rejected" ? 0 : Number(transaction.amount)
         if (transaction.type === "income") {
           monthData.income += projectedAmount
@@ -44,8 +44,9 @@ export function ProjectionDashboard() {
     })
 
     purchases?.forEach((purchase) => {
-      const startDate = new Date(purchase.start_date)
-      const monthsSinceStart = (selectedYear - startDate.getFullYear()) * 12 + index - startDate.getMonth()
+      const startMonthIndex = getMonthIndexFromDateOnly(purchase.start_date)
+      const startYear = getYearFromDateOnly(purchase.start_date)
+      const monthsSinceStart = (selectedYear - startYear) * 12 + index - startMonthIndex
       if (monthsSinceStart >= 0 && monthsSinceStart < purchase.total_installments) {
         monthData.installments += Number(purchase.installment_amount)
       }
@@ -80,7 +81,7 @@ export function ProjectionDashboard() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Cuotas del ano</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">Cuotas del año</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold font-mono">
             {formatCurrency(installmentsTotal, currency)}

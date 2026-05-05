@@ -71,9 +71,9 @@ export function AnnualProjectionChart({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Proyeccion Anual</CardTitle>
+        <CardTitle className="text-lg">Proyección anual</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Ingresos, gastos y ahorro de los ultimos 12 meses
+          Ingresos, gastos y ahorro de los últimos 12 meses
         </p>
       </CardHeader>
       <CardContent>
