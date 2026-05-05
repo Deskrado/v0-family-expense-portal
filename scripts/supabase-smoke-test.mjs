@@ -26,6 +26,7 @@ async function main() {
     const cleanup = async () => {
     const order = [
       "transactions",
+      "recurring_income_templates",
       "credit_card_purchases",
       "credit_cards",
       "categories",
@@ -127,6 +128,10 @@ async function main() {
     if (transaction.error) throw transaction.error
     ids.transactions = transaction.data.id
 
+    const recurringTemplate = await client.from("recurring_income_templates").insert({ user_id: userId, description: "Smoke Sueldo", amount: 1000, currency_id: currencyId, category_id: category.data.id, group_id: group.data.id, day_of_month: 1, start_date: new Date().toISOString().slice(0, 10), is_active: true }).select("*").single()
+    if (recurringTemplate.error) throw recurringTemplate.error
+    ids.recurring_income_templates = recurringTemplate.data.id
+
     const investment = await client.from("investments").insert({ user_id: userId, name: "Smoke PF", type: "plazo_fijo", initial_amount: 1000, current_value: 1100, currency_id: currencyId, start_date: new Date().toISOString().slice(0, 10), is_active: true }).select("*").single()
     if (investment.error) throw investment.error
     ids.investments = investment.data.id
@@ -137,6 +142,7 @@ async function main() {
 
     const checks = await Promise.all([
       client.from("transactions").select("*, category:categories(*), group:groups(*), currency:currencies(*), credit_card:credit_cards(*)").eq("id", ids.transactions).single(),
+      client.from("recurring_income_templates").select("*, currency:currencies(*), category:categories(*), group:groups(*)").eq("id", ids.recurring_income_templates).single(),
       client.from("credit_cards").select("*, currency:currencies(*)").eq("id", ids.credit_cards).single(),
       client.from("credit_card_purchases").select("*, credit_card:credit_cards(*, currency:currencies(*)), category:categories(*)").eq("id", ids.credit_card_purchases).single(),
       client.from("categories").select("*, group:groups(*)").eq("id", ids.categories).single(),

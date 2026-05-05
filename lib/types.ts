@@ -110,6 +110,10 @@ export interface Transaction {
   created_by?: string | null
   credit_card_purchase_id?: string | null
   installment_number?: number | null
+  status?: 'pending' | 'approved' | 'rejected'
+  approved_at?: string | null
+  approved_by?: string | null
+  recurring_template_id?: string | null
   metadata?: Record<string, unknown>
   archived_at?: string | null
   updated_at?: string
@@ -119,6 +123,30 @@ export interface Transaction {
   group?: Group
   currency?: Currency
   credit_card?: CreditCard
+}
+
+export interface RecurringIncomeTemplate {
+  id: string
+  user_id: string
+  family_id: string | null
+  description: string
+  amount: number
+  currency_id: string | null
+  category_id: string | null
+  group_id: string | null
+  day_of_month: number
+  start_date: string
+  end_date: string | null
+  frequency: 'monthly'
+  auto_generate_months_ahead: number
+  is_active: boolean
+  last_generated_on: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  currency?: Currency | null
+  category?: Category | null
+  group?: Group | null
 }
 
 export interface CreditCardPurchase {

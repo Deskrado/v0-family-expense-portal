@@ -64,7 +64,7 @@ async function postJson(path: string, body?: Record<string, unknown>) {
   return payload
 }
 
-export function PortfolioIntegrations() {
+export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "portfolio" | "settings" }) {
   const { data: connections, isLoading: isLoadingConnections } = useBrokerConnections()
   const { data: positions, isLoading: isLoadingPositions } = useBrokerPositions()
   const { data: snapshots } = usePortfolioSnapshots()
@@ -89,6 +89,7 @@ export function PortfolioIntegrations() {
   }, [fxQuotes])
 
   const blueQuote = latestFxQuotes.find((quote) => quote.rate_type.toLowerCase().includes("blue"))
+  const isSettings = variant === "settings"
 
   const refreshBrokerData = () => {
     brokerKeys.forEach((key) => mutate(key))
@@ -170,7 +171,7 @@ export function PortfolioIntegrations() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {!isSettings && <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">Portfolio conectado</CardTitle>
@@ -193,17 +194,17 @@ export function PortfolioIntegrations() {
             {blueQuote?.ask ? formatCurrency(Number(blueQuote.ask), blueQuote.quote_currency) : "-"}
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
-      <Tabs defaultValue="portfolio" className="space-y-4">
+      <Tabs defaultValue={isSettings ? "connection" : "portfolio"} className="space-y-4">
         <TabsList className="flex h-auto flex-wrap justify-start">
-          <TabsTrigger value="portfolio"><Activity className="h-4 w-4" /> Portfolio</TabsTrigger>
-          <TabsTrigger value="positions">Posiciones</TabsTrigger>
+          {!isSettings && <TabsTrigger value="portfolio"><Activity className="h-4 w-4" /> Portfolio</TabsTrigger>}
+          {!isSettings && <TabsTrigger value="positions">Posiciones</TabsTrigger>}
           <TabsTrigger value="fx">Divisas</TabsTrigger>
-          <TabsTrigger value="connection"><Link2 className="h-4 w-4" /> IOL</TabsTrigger>
+          {isSettings && <TabsTrigger value="connection"><Link2 className="h-4 w-4" /> IOL</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="portfolio">
+        {!isSettings && <TabsContent value="portfolio">
           <Card>
             <CardHeader>
               <CardTitle>Snapshots</CardTitle>
@@ -237,9 +238,9 @@ export function PortfolioIntegrations() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
-        <TabsContent value="positions">
+        {!isSettings && <TabsContent value="positions">
           <Card>
             <CardHeader>
               <CardTitle>Posiciones</CardTitle>
@@ -281,7 +282,7 @@ export function PortfolioIntegrations() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
         <TabsContent value="fx">
           <Card>
@@ -333,7 +334,7 @@ export function PortfolioIntegrations() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="connection">
+        {isSettings && <TabsContent value="connection">
           <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
             <Card>
               <CardHeader>
@@ -425,7 +426,7 @@ export function PortfolioIntegrations() {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
     </div>
   )

@@ -5,6 +5,7 @@ import useSWR from "swr"
 import { useDashboard } from "./dashboard-context"
 import type {
   Transaction,
+  RecurringIncomeTemplate,
   Category,
   Group,
   Currency,
@@ -150,6 +151,17 @@ export function useInvestments() {
   })
 }
 
+export function useRecurringIncomeTemplates() {
+  return useSWR<RecurringIncomeTemplate[]>("recurring-income-templates", async () => {
+    const { data, error } = await supabase
+      .from("recurring_income_templates")
+      .select("*, currency:currencies(*), category:categories(*), group:groups(*)")
+      .order("day_of_month", { ascending: true })
+    if (error) throw error
+    return data || []
+  })
+}
+
 export function useBrokerConnections() {
   return useSWR<BrokerConnection[]>("broker-connections", async () => {
     const { data, error } = await supabase
@@ -241,12 +253,14 @@ export function useMonthlySummary() {
 
   if (transactions) {
     transactions.forEach((t) => {
+      const actualAmount = t.status === "pending" || t.status === "rejected" ? 0 : Number(t.amount)
+      const budgetedAmount = t.status === "rejected" ? 0 : Number(t.budgeted_amount || t.amount)
       if (t.type === "income") {
-        summary.totalIncome += Number(t.amount)
-        summary.budgetedIncome += Number(t.budgeted_amount || t.amount)
+        summary.totalIncome += actualAmount
+        summary.budgetedIncome += budgetedAmount
       } else {
-        summary.totalExpenses += Number(t.amount)
-        summary.budgetedExpenses += Number(t.budgeted_amount || t.amount)
+        summary.totalExpenses += actualAmount
+        summary.budgetedExpenses += budgetedAmount
       }
     })
     summary.savings = summary.totalIncome - summary.totalExpenses
@@ -302,8 +316,8 @@ export function useGroupedTransactions() {
         }
       }
       grouped[key].items.push(t)
-      const amount = Number(t.amount)
-      const budgeted = Number(t.budgeted_amount || t.amount)
+      const amount = t.status === "pending" || t.status === "rejected" ? 0 : Number(t.amount)
+      const budgeted = t.status === "rejected" ? 0 : Number(t.budgeted_amount || t.amount)
       if (t.type === "expense") {
         grouped[key].actual += amount
         grouped[key].budgeted += budgeted

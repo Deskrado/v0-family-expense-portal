@@ -29,13 +29,15 @@ export default function DashboardPage() {
 
   if (monthlyTransactions) {
     monthlyTransactions.forEach((t) => {
+      const actualAmount = t.status === "pending" || t.status === "rejected" ? 0 : Number(t.amount)
+      const budgetedAmount = t.status === "rejected" ? 0 : Number(t.budgeted_amount || t.amount)
       if (t.type === "expense") {
         const groupKey = t.group_id || "ungrouped"
         if (!expensesByGroup[groupKey]) {
           expensesByGroup[groupKey] = { group: t.group || null, budgeted: 0, actual: 0, difference: 0, categories: [] }
         }
-        expensesByGroup[groupKey].actual += Number(t.amount)
-        expensesByGroup[groupKey].budgeted += Number(t.budgeted_amount || t.amount)
+        expensesByGroup[groupKey].actual += actualAmount
+        expensesByGroup[groupKey].budgeted += budgetedAmount
         expensesByGroup[groupKey].difference = expensesByGroup[groupKey].actual - expensesByGroup[groupKey].budgeted
       } else {
         const groupKey = t.category_id || "other-income"
@@ -57,8 +59,8 @@ export default function DashboardPage() {
             categories: [],
           }
         }
-        incomeByCategory[groupKey].actual += Number(t.amount)
-        incomeByCategory[groupKey].budgeted += Number(t.budgeted_amount || t.amount)
+        incomeByCategory[groupKey].actual += actualAmount
+        incomeByCategory[groupKey].budgeted += budgetedAmount
         incomeByCategory[groupKey].difference = incomeByCategory[groupKey].actual - incomeByCategory[groupKey].budgeted
       }
     })
@@ -74,10 +76,11 @@ export default function DashboardPage() {
       yearlyTransactions.forEach((t) => {
         const date = new Date(t.transaction_date)
         if (date.getMonth() === i) {
+          const projectedAmount = t.status === "rejected" ? 0 : Number(t.amount)
           if (t.type === "income") {
-            monthData.income += Number(t.amount)
+            monthData.income += projectedAmount
           } else {
-            monthData.expenses += Number(t.amount)
+            monthData.expenses += projectedAmount
           }
         }
       })

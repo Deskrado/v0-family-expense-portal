@@ -34,10 +34,11 @@ export function ProjectionDashboard() {
     yearlyTransactions?.forEach((transaction) => {
       const date = new Date(transaction.transaction_date)
       if (date.getMonth() === index) {
+        const projectedAmount = transaction.status === "rejected" ? 0 : Number(transaction.amount)
         if (transaction.type === "income") {
-          monthData.income += Number(transaction.amount)
+          monthData.income += projectedAmount
         } else {
-          monthData.expenses += Number(transaction.amount)
+          monthData.expenses += projectedAmount
         }
       }
     })

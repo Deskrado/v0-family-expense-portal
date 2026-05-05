@@ -22,7 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
-import { MoreHorizontal, Pencil, Trash2, Search, Plus, Loader2 } from "lucide-react"
+import { CheckCircle2, MoreHorizontal, Pencil, Trash2, Search, Plus, Loader2, XCircle } from "lucide-react"
 import Link from "next/link"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
@@ -48,6 +48,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
   const [searchQuery, setSearchQuery] = useState("")
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [actionId, setActionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const filteredTransactions = transactions.filter((t) =>
@@ -74,6 +75,40 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
     } finally {
       setIsDeleting(false)
       setDeleteId(null)
+    }
+  }
+
+  const updateStatus = async (transaction: Transaction, status: "approved" | "rejected") => {
+    setActionId(`${status}-${transaction.id}`)
+    setError(null)
+
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error("No estas autenticado")
+
+      const payload = status === "approved"
+        ? {
+            status,
+            approved_at: new Date().toISOString(),
+            approved_by: user.id,
+          }
+        : {
+            status,
+            archived_at: new Date().toISOString(),
+          }
+
+      const { error } = await supabase
+        .from("transactions")
+        .update(payload)
+        .eq("id", transaction.id)
+
+      if (error) throw error
+      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al actualizar el estado")
+    } finally {
+      setActionId(null)
     }
   }
 
@@ -153,7 +188,8 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                 <TableBody>
                   {filteredTransactions.map((transaction) => {
                     const budgeted = Number(transaction.budgeted_amount || transaction.amount)
-                    const actual = Number(transaction.amount)
+                    const status = transaction.status || "approved"
+                    const actual = status === "pending" || status === "rejected" ? 0 : Number(transaction.amount)
                     const difference = actual - budgeted
                     const currency = transaction.currency || null
 
@@ -168,6 +204,11 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                             {transaction.is_recurring && (
                               <Badge variant="secondary" className="text-xs">
                                 Recurrente
+                              </Badge>
+                            )}
+                            {status === "pending" && (
+                              <Badge variant="outline" className="text-xs">
+                                Pendiente
                               </Badge>
                             )}
                           </div>
@@ -210,6 +251,18 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              {transaction.type === "income" && status === "pending" && (
+                                <>
+                                  <DropdownMenuItem onClick={() => updateStatus(transaction, "approved")}>
+                                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                                    Aprobar
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem className="text-destructive" onClick={() => updateStatus(transaction, "rejected")}>
+                                    <XCircle className="mr-2 h-4 w-4" />
+                                    Rechazar
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                               <DropdownMenuItem asChild>
                                 <Link href={`${editUrl}/${transaction.id}`}>
                                   <Pencil className="mr-2 h-4 w-4" />
@@ -220,7 +273,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                                 className="text-destructive"
                                 onClick={() => setDeleteId(transaction.id)}
                               >
-                                <Trash2 className="mr-2 h-4 w-4" />
+                                {actionId === `rejected-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                                 Eliminar
                               </DropdownMenuItem>
                             </DropdownMenuContent>

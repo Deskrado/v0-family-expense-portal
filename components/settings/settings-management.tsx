@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
+import { PortfolioIntegrations } from "@/components/investments/portfolio-integrations"
 import type { FamilyMember, Profile } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -342,6 +343,7 @@ export function SettingsManagement() {
           <TabsTrigger value="profile">Perfil</TabsTrigger>
           <TabsTrigger value="finance">Finanzas</TabsTrigger>
           <TabsTrigger value="family">Hogar</TabsTrigger>
+          <TabsTrigger value="integrations">Integraciones</TabsTrigger>
           <TabsTrigger value="alerts">Alertas</TabsTrigger>
           <TabsTrigger value="account">Cuenta</TabsTrigger>
         </TabsList>
@@ -578,6 +580,10 @@ export function SettingsManagement() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="integrations">
+          <PortfolioIntegrations variant="settings" />
         </TabsContent>
 
         <TabsContent value="alerts">
