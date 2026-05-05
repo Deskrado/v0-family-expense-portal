@@ -51,6 +51,13 @@ function statusVariant(status: BrokerConnection["status"]) {
   return "destructive"
 }
 
+function statusLabel(status: BrokerConnection["status"]) {
+  if (status === "active") return "Activa"
+  if (status === "reauth_required") return "Requiere reconexion"
+  if (status === "disabled") return "Deshabilitada"
+  return "Error"
+}
+
 async function postJson(path: string, body?: Record<string, unknown>) {
   const response = await fetch(path, {
     method: "POST",
@@ -95,23 +102,24 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
     brokerKeys.forEach((key) => mutate(key))
   }
 
-  const connectIol = async () => {
+  const connectIol = async (connection?: BrokerConnection) => {
     if (!username.trim() || !password.trim()) {
       setMessage({ type: "error", text: "Completa usuario y password de IOL" })
       return
     }
 
-    setAction("connect")
+    setAction(connection ? `reconnect-${connection.id}` : "connect")
     setMessage(null)
     try {
       await postJson("/api/integrations/iol/connect", {
         username: username.trim(),
         password,
-        displayName: displayName.trim() || "IOL",
-        environment,
+        displayName: connection?.display_name || displayName.trim() || "IOL",
+        environment: connection?.environment || environment,
+        ...(connection ? { connectionId: connection.id } : {}),
       })
       setPassword("")
-      setMessage({ type: "success", text: "Conexion IOL creada" })
+      setMessage({ type: "success", text: connection ? "Conexion IOL reconectada" : "Conexion IOL creada" })
       refreshBrokerData()
     } catch (error) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Error al conectar IOL" })
@@ -367,7 +375,7 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
                   <Label>Password IOL</Label>
                   <Input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
                 </div>
-                <Button className="w-full" onClick={connectIol} disabled={action === "connect"}>
+                <Button className="w-full" onClick={() => connectIol()} disabled={action === "connect"}>
                   {action === "connect" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
                   Conectar
                 </Button>
@@ -393,18 +401,32 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{connection.display_name}</span>
-                              <Badge variant={statusVariant(connection.status)}>{connection.status}</Badge>
+                              <Badge variant={statusVariant(connection.status)}>{statusLabel(connection.status)}</Badge>
                             </div>
                             <div className="text-sm text-muted-foreground">
                               {connection.provider?.name || "IOL"} - {connection.environment} - sync {formatDateTime(connection.last_sync_at)}
                             </div>
+                            {connection.status === "reauth_required" && (
+                              <div className="text-sm text-muted-foreground">
+                                Ingresa usuario y password arriba y usa Reconectar para renovar el acceso read-only.
+                              </div>
+                            )}
                             {connection.last_error && <div className="text-sm text-destructive">{connection.last_error}</div>}
                           </div>
                           <div className="flex gap-2">
+                            {connection.status === "reauth_required" && (
+                              <Button
+                                onClick={() => connectIol(connection)}
+                                disabled={action === `reconnect-${connection.id}`}
+                              >
+                                {action === `reconnect-${connection.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+                                Reconectar
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               onClick={() => syncIol(connection.id)}
-                              disabled={connection.status === "disabled" || action === `sync-${connection.id}`}
+                              disabled={connection.status !== "active" || action === `sync-${connection.id}`}
                             >
                               {action === `sync-${connection.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                               Sync

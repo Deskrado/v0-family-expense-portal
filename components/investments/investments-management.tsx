@@ -1,11 +1,19 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useCurrencies, useInvestments, useUserSettings } from "@/components/dashboard/use-dashboard-data"
-import { PortfolioIntegrations } from "@/components/investments/portfolio-integrations"
+import {
+  useBrokerConnections,
+  useBrokerPositions,
+  useCurrencies,
+  useFxQuotes,
+  useInvestments,
+  usePortfolioSnapshots,
+  useSavingsGoals,
+  useUserSettings,
+} from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
-import type { Investment } from "@/lib/types"
+import type { BrokerConnection, BrokerPosition, Currency, FxQuote, Investment, SavingsGoal } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -40,9 +48,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { Loader2, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react"
+import { Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react"
 import { mutate } from "swr"
 
 type InvestmentForm = {
@@ -86,8 +93,119 @@ function investmentToForm(investment: Investment): InvestmentForm {
   }
 }
 
+type PortfolioRow = {
+  id: string
+  source: "manual" | "iol" | "savings_fx"
+  name: string
+  kind: string
+  quantity: number | null
+  currentPrice: number | null
+  priceCurrency: Currency | null | undefined
+  initialValue: number | null
+  currentValue: number
+  result: number | null
+  currency: Currency | null | undefined
+  updatedAt: string | null
+  isActive: boolean
+  investment?: Investment
+  position?: BrokerPosition
+  savingsGoal?: SavingsGoal
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-"
+  return new Date(value).toLocaleString("es-AR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  })
+}
+
+class ApiRequestError extends Error {
+  code?: string
+  status: number
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = "ApiRequestError"
+    this.status = status
+    this.code = code
+  }
+}
+
+async function postJson(path: string, body?: Record<string, unknown>) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new ApiRequestError(
+      payload.error || "No se pudo completar la solicitud",
+      response.status,
+      payload.code,
+    )
+  }
+  return payload
+}
+
+function shouldAutoSyncConnection(connection: BrokerConnection) {
+  if (connection.status !== "active") return false
+  if (!connection.last_sync_at) return true
+
+  const lastSync = new Date(connection.last_sync_at).getTime()
+  if (!Number.isFinite(lastSync)) return true
+
+  return Date.now() - lastSync > 5 * 60 * 1000
+}
+
+function getLatestFxRate(quotes: FxQuote[] | undefined, fromCode: string, toCode: string) {
+  if (fromCode === toCode) return 1
+  const quote = (quotes || []).find((item) =>
+    item.base_currency?.code === fromCode &&
+    item.quote_currency?.code === toCode
+  )
+  if (!quote) return null
+  return Number(quote.ask || quote.mid || quote.bid || 0) || null
+}
+
+function convertToCurrency(amount: number, from: Currency | null | undefined, to: Currency | null | undefined, quotes: FxQuote[] | undefined) {
+  const fromCode = from?.code || to?.code || "ARS"
+  const toCode = to?.code || fromCode
+  const rate = getLatestFxRate(quotes, fromCode, toCode)
+  return rate ? amount * rate : amount
+}
+
+function isQuotedPerHundred(kind: string | null | undefined) {
+  const normalized = String(kind || "").toLowerCase()
+  return (
+    normalized.includes("bono") ||
+    normalized.includes("titulo") ||
+    normalized.includes("título") ||
+    normalized.includes("letra")
+  )
+}
+
+function getBrokerCostBasis(position: BrokerPosition, quantity: number) {
+  if (!position.avg_cost) return null
+  const rawCost = Number(position.avg_cost) * quantity
+  const kind = position.instrument?.instrument_type || position.instrument?.market || ""
+  return isQuotedPerHundred(kind) ? rawCost / 100 : rawCost
+}
+
+function getManualUnitPrice(investment: Investment) {
+  const quantity = investment.quantity ? Number(investment.quantity) : 0
+  if (!quantity) return null
+  return Number(investment.current_value) / quantity
+}
+
 export function InvestmentsManagement() {
   const { data: investments, isLoading } = useInvestments()
+  const { data: connections } = useBrokerConnections()
+  const { data: positions, isLoading: positionsLoading } = useBrokerPositions()
+  const { data: snapshots } = usePortfolioSnapshots()
+  const { data: fxQuotes } = useFxQuotes()
+  const { data: savingsGoals, isLoading: savingsLoading } = useSavingsGoals()
   const { data: currencies } = useCurrencies()
   const { data: settings } = useUserSettings()
   const [search, setSearch] = useState("")
@@ -95,26 +213,120 @@ export function InvestmentsManagement() {
   const [editing, setEditing] = useState<Investment | null>(null)
   const [form, setForm] = useState<InvestmentForm>(emptyForm)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [syncingFx, setSyncingFx] = useState(false)
+  const [autoRefreshing, setAutoRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [syncNotice, setSyncNotice] = useState<string | null>(null)
+  const autoRefreshStarted = useRef(false)
 
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
-  const visibleInvestments = useMemo(() => {
-    const query = search.toLowerCase()
-    return (investments || []).filter((investment) =>
-      `${investment.name} ${investment.type} ${investment.notes || ""}`.toLowerCase().includes(query)
-    )
-  }, [investments, search])
+  const defaultCurrency = settings?.default_currency || currencies?.find((currency) => currency.code === "ARS") || currencies?.[0] || null
+  const portfolioRows = useMemo<PortfolioRow[]>(() => {
+    const manualRows = (investments || []).map((investment) => {
+      const initialValue = Number(investment.initial_amount)
+      const currentValue = Number(investment.current_value)
+      return {
+        id: `manual-${investment.id}`,
+        source: "manual" as const,
+        name: investment.name,
+        kind: investment.type.replace("_", " "),
+        quantity: investment.quantity ? Number(investment.quantity) : null,
+        currentPrice: getManualUnitPrice(investment),
+        priceCurrency: investment.currency,
+        initialValue,
+        currentValue,
+        result: currentValue - initialValue,
+        currency: investment.currency,
+        updatedAt: investment.updated_at || investment.created_at,
+        isActive: investment.is_active,
+        investment,
+      }
+    })
 
-  const totals = (investments || []).reduce(
-    (acc, investment) => {
-      if (investment.is_active) {
-        acc.initial += Number(investment.initial_amount)
-        acc.current += Number(investment.current_value)
+    const connectedRows = (positions || []).map((position) => {
+      const quantity = Number(position.quantity || 0)
+      const currentValue = Number(position.market_value || 0)
+      const initialValue = getBrokerCostBasis(position, quantity)
+      return {
+        id: `iol-${position.id}`,
+        source: "iol" as const,
+        name: position.instrument?.symbol || position.instrument?.name || "SIN-TICKER",
+        kind: position.instrument?.instrument_type || position.instrument?.market || position.source.toUpperCase(),
+        quantity,
+        currentPrice: position.price ? Number(position.price) : null,
+        priceCurrency: position.currency,
+        initialValue,
+        currentValue,
+        result: initialValue === null ? null : currentValue - initialValue,
+        currency: position.currency,
+        updatedAt: position.observed_at,
+        isActive: true,
+        position,
+      }
+    })
+
+    const foreignSavingsRows = (savingsGoals || [])
+      .filter((goal) => !goal.is_completed && Number(goal.current_amount) > 0 && goal.currency?.code !== "ARS")
+      .map((goal) => {
+        const fxRate = getLatestFxRate(fxQuotes, goal.currency?.code || "USD", defaultCurrency?.code || "ARS")
+        return {
+          id: `savings-fx-${goal.id}`,
+          source: "savings_fx" as const,
+          name: goal.name,
+          kind: "refugio divisa",
+          quantity: Number(goal.current_amount),
+          currentPrice: fxRate,
+          priceCurrency: defaultCurrency,
+          initialValue: null,
+          currentValue: Number(goal.current_amount),
+          result: null,
+          currency: goal.currency,
+          updatedAt: goal.updated_at || goal.created_at,
+          isActive: true,
+          savingsGoal: goal,
+        }
+      })
+
+    return [...manualRows, ...connectedRows, ...foreignSavingsRows]
+  }, [defaultCurrency, fxQuotes, investments, positions, savingsGoals])
+
+  const visibleRows = useMemo(() => {
+    const query = search.toLowerCase()
+    return portfolioRows.filter((row) =>
+      `${row.name} ${row.kind} ${row.source}`.toLowerCase().includes(query)
+    )
+  }, [portfolioRows, search])
+
+  const totals = portfolioRows.reduce(
+    (acc, row) => {
+      if (row.isActive) {
+        acc.initial += convertToCurrency(Number(row.initialValue || 0), row.currency, defaultCurrency, fxQuotes)
+        acc.current += convertToCurrency(Number(row.currentValue), row.currency, defaultCurrency, fxQuotes)
       }
       return acc
     },
     { initial: 0, current: 0 }
   )
+  const connectedTotal = (positions || []).reduce((total, position) => total + convertToCurrency(Number(position.market_value || 0), position.currency, defaultCurrency, fxQuotes), 0)
+  const manualTotal = (investments || []).reduce((total, investment) => total + (investment.is_active ? convertToCurrency(Number(investment.current_value), investment.currency, defaultCurrency, fxQuotes) : 0), 0)
+  const foreignSavingsTotal = (savingsGoals || [])
+    .filter((goal) => !goal.is_completed && Number(goal.current_amount) > 0 && goal.currency?.code !== "ARS")
+    .reduce((total, goal) => total + convertToCurrency(Number(goal.current_amount), goal.currency, defaultCurrency, fxQuotes), 0)
+  const consolidated = portfolioRows.reduce(
+    (acc, row) => {
+      if (!row.isActive || !row.initialValue || row.initialValue <= 0) return acc
+      const initial = convertToCurrency(row.initialValue, row.currency, defaultCurrency, fxQuotes)
+      const current = convertToCurrency(row.currentValue, row.currency, defaultCurrency, fxQuotes)
+      acc.initial += initial
+      acc.current += current
+      return acc
+    },
+    { initial: 0, current: 0 }
+  )
+  const consolidatedResult = consolidated.current - consolidated.initial
+  const consolidatedYield = consolidated.initial > 0 ? (consolidatedResult / consolidated.initial) * 100 : 0
+  const latestSnapshot = snapshots?.[0] || null
+  const blueQuote = (fxQuotes || []).find((quote) => quote.rate_type.toLowerCase().includes("blue"))
 
   const openNew = () => {
     setEditing(null)
@@ -194,22 +406,75 @@ export function InvestmentsManagement() {
     mutate("investments")
   }
 
-  const defaultCurrency = settings?.default_currency || currencies?.find((currency) => currency.code === "ARS") || currencies?.[0] || null
+  const syncFx = async () => {
+    setSyncingFx(true)
+    setError(null)
+    setSyncNotice(null)
+    try {
+      await postJson("/api/market/fx/sync")
+      mutate("fx-quotes")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al actualizar cotizaciones")
+    } finally {
+      setSyncingFx(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!connections || autoRefreshStarted.current) return
+    autoRefreshStarted.current = true
+
+    async function refreshMarketData() {
+      setAutoRefreshing(true)
+      setError(null)
+      setSyncNotice(null)
+      try {
+        const staleConnections = (connections || []).filter(shouldAutoSyncConnection)
+        const reauthConnections = (connections || []).filter((connection) => connection.status === "reauth_required")
+
+        if (reauthConnections.length > 0) {
+          setSyncNotice("IOL requiere reconectar la cuenta desde Configuracion > Integraciones.")
+        }
+
+        const results = await Promise.allSettled([
+          postJson("/api/market/fx/sync"),
+          ...staleConnections.map((connection) => postJson("/api/integrations/iol/sync", { connectionId: connection.id })),
+        ])
+
+        const rejected = results.filter((result) => result.status === "rejected")
+        const requiresReconnect = rejected.find(
+          (result) => result.status === "rejected" && result.reason instanceof ApiRequestError && result.reason.code === "IOL_REAUTH_REQUIRED",
+        )
+        const otherError = rejected.find(
+          (result) => !(result.status === "rejected" && result.reason instanceof ApiRequestError && result.reason.code === "IOL_REAUTH_REQUIRED"),
+        )
+
+        if (requiresReconnect) {
+          setSyncNotice("IOL requiere reconectar la cuenta desde Configuracion > Integraciones.")
+        }
+        if (otherError?.status === "rejected") {
+          setError(otherError.reason instanceof Error ? otherError.reason.message : "No se pudo actualizar una cotizacion")
+        }
+        mutate("fx-quotes")
+        mutate("broker-connections")
+        mutate("broker-positions")
+        mutate("portfolio-snapshots")
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Error al actualizar cotizaciones")
+      } finally {
+        setAutoRefreshing(false)
+      }
+    }
+
+    refreshMarketData()
+  }, [connections])
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Capital inicial activo</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold font-mono">
-            {formatCurrency(totals.initial, defaultCurrency)}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Valor actual activo</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">Portfolio total</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold font-mono">
             {formatCurrency(totals.current, defaultCurrency)}
@@ -217,110 +482,191 @@ export function InvestmentsManagement() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Resultado</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">Manual</CardTitle>
           </CardHeader>
-          <CardContent className={`text-2xl font-bold font-mono ${totals.current - totals.initial >= 0 ? "text-success" : "text-destructive"}`}>
-            {formatCurrency(totals.current - totals.initial, defaultCurrency)}
+          <CardContent className="text-2xl font-bold font-mono">
+            {formatCurrency(manualTotal, defaultCurrency)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Ahorros divisa</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-bold font-mono">
+            {formatCurrency(foreignSavingsTotal, defaultCurrency)}
           </CardContent>
         </Card>
       </div>
 
-      <Tabs defaultValue="manual" className="space-y-4">
-        <TabsList className="flex h-auto flex-wrap justify-start">
-          <TabsTrigger value="manual">Manual</TabsTrigger>
-          <TabsTrigger value="connected">Conectadas</TabsTrigger>
-        </TabsList>
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Conectado</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-bold font-mono">
+            {formatCurrency(connectedTotal || Number(latestSnapshot?.total_value || 0), defaultCurrency)}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-sm text-muted-foreground">Posiciones IOL</CardTitle>
+              {autoRefreshing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            </div>
+          </CardHeader>
+          <CardContent className="text-2xl font-bold font-mono">{positions?.length || 0}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-sm text-muted-foreground">Dolar blue venta</CardTitle>
+              <Button variant="ghost" size="icon" onClick={syncFx} disabled={syncingFx}>
+                {syncingFx ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="text-2xl font-bold font-mono">
+            {blueQuote?.ask ? formatCurrency(Number(blueQuote.ask), blueQuote.quote_currency) : "-"}
+          </CardContent>
+        </Card>
+      </div>
 
-        <TabsContent value="manual">
-          <Card>
-            <CardHeader>
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle>Inversiones</CardTitle>
-                <div className="flex gap-2">
-                  <div className="relative flex-1 sm:w-64">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Buscar..." value={search} onChange={(event) => setSearch(event.target.value)} className="pl-8" />
-                  </div>
-                  <Button onClick={openNew}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Nueva
-                  </Button>
-                </div>
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-1">
+            <CardTitle>Posicion consolidada</CardTitle>
+            <p className="text-sm text-muted-foreground">Rendimiento actual sobre activos con costo registrado.</p>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Costo</p>
+              <p className="text-xl font-bold font-mono">{formatCurrency(consolidated.initial, defaultCurrency)}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Valor actual</p>
+              <p className="text-xl font-bold font-mono">{formatCurrency(consolidated.current, defaultCurrency)}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Resultado</p>
+              <p className={`text-xl font-bold font-mono ${consolidatedResult >= 0 ? "text-success" : "text-destructive"}`}>
+                {formatCurrency(consolidatedResult, defaultCurrency)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Rendimiento</p>
+              <p className={`text-xl font-bold font-mono ${consolidatedResult >= 0 ? "text-success" : "text-destructive"}`}>
+                {consolidated.initial > 0 ? `${consolidatedYield.toFixed(2)}%` : "-"}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>Cartera</CardTitle>
+            <div className="flex gap-2">
+              <div className="relative flex-1 sm:w-64">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Buscar..." value={search} onChange={(event) => setSearch(event.target.value)} className="pl-8" />
               </div>
-            </CardHeader>
-            <CardContent>
-              {error && !dialogOpen && (
-                <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
-              )}
-              {isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : visibleInvestments.length === 0 ? (
-                <div className="py-8 text-center text-muted-foreground">No hay inversiones registradas</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Nombre</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Inicio</TableHead>
-                        <TableHead className="text-right">Inicial</TableHead>
-                        <TableHead className="text-right">Actual</TableHead>
-                        <TableHead className="text-right">Resultado</TableHead>
-                        <TableHead>Estado</TableHead>
-                        <TableHead className="w-10"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {visibleInvestments.map((investment) => {
-                        const result = Number(investment.current_value) - Number(investment.initial_amount)
-                        return (
-                          <TableRow key={investment.id}>
-                            <TableCell className="font-medium">{investment.name}</TableCell>
-                            <TableCell>{investment.type.replace("_", " ")}</TableCell>
-                            <TableCell>{new Date(investment.start_date).toLocaleDateString("es-AR")}</TableCell>
-                            <TableCell className="text-right font-mono">{formatCurrency(Number(investment.initial_amount), investment.currency)}</TableCell>
-                            <TableCell className="text-right font-mono">{formatCurrency(Number(investment.current_value), investment.currency)}</TableCell>
-                            <TableCell className={`text-right font-mono ${result >= 0 ? "text-success" : "text-destructive"}`}>{formatCurrency(result, investment.currency)}</TableCell>
-                            <TableCell>
-                              <Badge variant={investment.is_active ? "secondary" : "outline"}>{investment.is_active ? "Activa" : "Cerrada"}</Badge>
-                            </TableCell>
-                            <TableCell>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => openEdit(investment)}>
-                                    <Pencil className="mr-2 h-4 w-4" />
-                                    Editar
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem className="text-destructive" onClick={() => deleteInvestment(investment)}>
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    Cerrar
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="connected">
-          <PortfolioIntegrations />
-        </TabsContent>
-      </Tabs>
+              <Button onClick={openNew}>
+                <Plus className="mr-2 h-4 w-4" />
+                Nueva
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {syncNotice && !dialogOpen && (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              {syncNotice}
+            </div>
+          )}
+          {error && !dialogOpen && (
+            <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+          )}
+          {isLoading || positionsLoading || savingsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : visibleRows.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">No hay inversiones registradas</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Activo</TableHead>
+                    <TableHead>Origen</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead className="text-right">Cantidad</TableHead>
+                    <TableHead className="text-right">Precio actual</TableHead>
+                    <TableHead className="text-right">Inicial / costo</TableHead>
+                    <TableHead className="text-right">Actual</TableHead>
+                    <TableHead className="text-right">Resultado</TableHead>
+                    <TableHead>Actualizado</TableHead>
+                    <TableHead className="w-10"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visibleRows.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-medium">{row.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={row.source === "manual" ? "outline" : "secondary"}>
+                          {row.source === "manual" ? "Manual" : row.source === "iol" ? "IOL" : "Ahorro"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="capitalize">{row.kind}</TableCell>
+                      <TableCell className="text-right font-mono">
+                        {row.quantity === null ? "-" : row.quantity.toLocaleString("es-AR")}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {row.currentPrice === null ? "-" : formatCurrency(row.currentPrice, row.priceCurrency)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {row.initialValue === null ? "-" : formatCurrency(row.initialValue, row.currency)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(row.currentValue, row.currency)}</TableCell>
+                      <TableCell className={`text-right font-mono ${Number(row.result || 0) >= 0 ? "text-success" : "text-destructive"}`}>
+                        {row.result === null ? "-" : formatCurrency(row.result, row.currency)}
+                      </TableCell>
+                      <TableCell>{formatDateTime(row.updatedAt)}</TableCell>
+                      <TableCell>
+                        {row.investment ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(row.investment!)}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive" onClick={() => deleteInvestment(row.investment!)}>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Cerrar
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

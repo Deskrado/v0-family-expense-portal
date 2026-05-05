@@ -22,6 +22,41 @@ import type {
 
 const supabase = createClient()
 
+function getPositionAccountKey(position: BrokerPosition) {
+  const connection = position.account?.connection
+  const provider = connection?.provider_id || "provider"
+  const environment = connection?.environment || "environment"
+  const symbol = position.instrument?.symbol || position.instrument?.provider_symbol || position.instrument_id || "instrument"
+  const market = position.instrument?.market || "market"
+  return `${provider}:${environment}:${symbol}:${market}:${position.source}`
+}
+
+function dedupeBrokerPositions(positions: BrokerPosition[]) {
+  const latestByKey = new Map<string, BrokerPosition>()
+
+  for (const position of positions) {
+    const status = position.account?.connection?.status
+    if (status === "disabled") continue
+
+    const key = getPositionAccountKey(position)
+    const current = latestByKey.get(key)
+    if (!current) {
+      latestByKey.set(key, position)
+      continue
+    }
+
+    const currentObservedAt = new Date(current.observed_at || current.updated_at).getTime()
+    const nextObservedAt = new Date(position.observed_at || position.updated_at).getTime()
+    if (nextObservedAt > currentObservedAt) {
+      latestByKey.set(key, position)
+    }
+  }
+
+  return Array.from(latestByKey.values()).sort(
+    (a, b) => new Date(b.observed_at).getTime() - new Date(a.observed_at).getTime(),
+  )
+}
+
 export function useCurrencies() {
   return useSWR<Currency[]>("currencies", async () => {
     const { data, error } = await supabase
@@ -182,10 +217,10 @@ export function useBrokerPositions() {
         account:broker_accounts(*, connection:broker_connections(*)),
         instrument:market_instruments(*),
         currency:currencies(*)
-      `)
+    `)
       .order("observed_at", { ascending: false })
     if (error) throw error
-    return data || []
+    return dedupeBrokerPositions(data || [])
   })
 }
 

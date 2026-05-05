@@ -34,7 +34,8 @@ export default function LoginPage() {
         password,
       })
       if (error) throw error
-      router.push('/dashboard')
+      router.replace('/dashboard')
+      router.refresh()
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'Error al iniciar sesion')
     } finally {

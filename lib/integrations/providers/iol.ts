@@ -99,32 +99,101 @@ function findArrays(value: unknown): unknown[][] {
   return []
 }
 
-export function parseIolPositions(raw: Record<string, unknown>) {
-  const arrays = findArrays(raw)
-  const candidates = arrays
-    .filter((items) => items.length > 0 && items.every((item) => item && typeof item === "object"))
-    .sort((a, b) => b.length - a.length)
+function readObject(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
 
-  const source = candidates[0] || []
+function readNumber(...values: unknown[]) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0
+    const compact = String(value).replace(/\s/g, "")
+    const normalized = compact.includes(",")
+      ? compact.replace(/\./g, "").replace(",", ".")
+      : compact
+    const parsed = Number(normalized)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function normalizeCurrency(value: unknown) {
+  const raw = String(value || "ARS").toUpperCase()
+  if (raw === "US$" || raw.includes("USD") || raw.includes("DOLAR")) return "USD"
+  if (raw.includes("PESO") || raw.includes("ARS")) return "ARS"
+  return raw
+}
+
+function normalizeInstrumentType(value: unknown) {
+  const raw = String(value || "other").toLowerCase()
+  if (raw.includes("accion")) return "acciones"
+  if (raw.includes("bono")) return "bonos"
+  if (raw.includes("titulo")) return "bonos"
+  if (raw.includes("cedear")) return "cedear"
+  if (raw.includes("fondo") || raw.includes("fci")) return "fci"
+  return raw || "other"
+}
+
+function getPreferredPositionArray(raw: Record<string, unknown>) {
+  const portfolioArgentina = readObject(raw.portfolioArgentina)
+  const portfolioLegacy = readObject(raw.portfolioLegacy)
+  const preferred = [
+    portfolioArgentina.activos,
+    portfolioArgentina.titulos,
+    portfolioArgentina.tenencias,
+    portfolioLegacy.activos,
+    portfolioLegacy.titulos,
+    portfolioLegacy.tenencias,
+  ]
+
+  for (const value of preferred) {
+    if (Array.isArray(value) && value.length > 0) return value
+  }
+
+  return findArrays(raw)
+    .filter((items) => items.length > 0 && items.every((item) => item && typeof item === "object"))
+    .sort((a, b) => {
+      const score = (items: unknown[]) => {
+        const first = readObject(items[0])
+        const title = readObject(first.titulo)
+        const keys = new Set([...Object.keys(first), ...Object.keys(title)])
+        let total = 0
+        for (const key of ["simbolo", "descripcion", "cantidad", "valorizado", "ultimoPrecio", "titulo"]) {
+          if (keys.has(key)) total += 10
+        }
+        return total + items.length
+      }
+      return score(b) - score(a)
+    })[0] || []
+}
+
+export function parseIolPositions(raw: Record<string, unknown>) {
+  const source = getPreferredPositionArray(raw)
 
   return source.map((item) => {
     const row = item as Record<string, unknown>
-    const symbol = String(row.simbolo || row.ticker || row.symbol || row.descripcion || "SIN-TICKER")
-    const quantity = Number(row.cantidad || row.nominales || row.quantity || row.tenencia || 0)
-    const price = Number(row.cotizacion || row.precio || row.lastPrice || row.price || 0)
-    const marketValue = Number(row.valorizado || row.valuacion || row.marketValue || row.valorActual || quantity * price || 0)
-    const currencyCode = String(row.moneda || row.currency || "ARS").toUpperCase()
+    const title = readObject(row.titulo)
+    const symbol = String(title.simbolo || row.simbolo || row.ticker || row.symbol || "").trim()
+    const name = String(title.descripcion || row.descripcion || row.nombre || symbol).trim()
+    const quantity = readNumber(row.cantidad, row.nominales, row.quantity, row.tenencia)
+    const avgCost = readNumber(row.ppc, row.precioPromedio, row.avgCost, row.costoPromedio)
+    const price = readNumber(row.ultimoPrecio, row.cotizacion, row.precio, row.lastPrice, row.price)
+    const marketValue = readNumber(row.valorizado, row.valuacion, row.marketValue, row.valorActual, quantity * price)
+    const currencyCode = normalizeCurrency(title.moneda || row.moneda || row.currency)
 
     return {
-      symbol,
-      name: String(row.descripcion || row.nombre || symbol),
-      market: String(row.mercado || row.market || "IOL"),
-      instrumentType: String(row.tipo || row.type || "other").toLowerCase(),
+      symbol: symbol || name || "SIN-TICKER",
+      name: name || symbol || "Sin descripcion",
+      market: String(title.mercado || row.mercado || row.market || "IOL"),
+      instrumentType: normalizeInstrumentType(title.tipo || row.tipo || row.type),
       quantity,
+      avgCost,
       price,
       marketValue,
       currencyCode,
       raw: row,
     }
-  })
+  }).filter((position) => position.symbol !== "SIN-TICKER" || position.quantity !== 0 || position.marketValue !== 0)
 }

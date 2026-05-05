@@ -17,15 +17,21 @@ async function getCurrencyId(admin: ReturnType<typeof createAdminClient>, code: 
 }
 
 export async function POST(request: NextRequest) {
+  let admin: ReturnType<typeof createAdminClient> | null = null
+  let connectionIdForError: string | null = null
+  let userIdForError: string | null = null
+
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    userIdForError = user.id
 
     const { connectionId } = await request.json()
     if (!connectionId) return NextResponse.json({ error: "connectionId requerido" }, { status: 400 })
+    connectionIdForError = connectionId
 
-    const admin = createAdminClient()
+    admin = createAdminClient()
     const { data: connection, error: connectionError } = await admin
       .from("broker_connections")
       .select("*, provider:external_providers(*), secret:integration_secrets(*)")
@@ -119,6 +125,7 @@ export async function POST(request: NextRequest) {
         account_id: account.id,
         instrument_id: instrument?.id || null,
         quantity: position.quantity,
+        avg_cost: position.avgCost || null,
         currency_id: currencyId,
         market_value: position.marketValue,
         price: position.price,
@@ -154,9 +161,35 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, positions: positions.length, snapshotId: snapshot.id })
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Error al sincronizar IOL"
+    const requiresReconnect = message.includes("refresh token") || message.includes("(401)")
+    if (requiresReconnect && admin && connectionIdForError) {
+      await admin
+        .from("broker_connections")
+        .update({
+          status: "reauth_required",
+          last_error: "IOL requiere reconectar la cuenta",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", connectionIdForError)
+
+      await admin.from("integration_audit_events").insert({
+        user_id: userIdForError,
+        connection_id: connectionIdForError,
+        event_type: "iol_sync",
+        status: "reauth_required",
+        message: "IOL rechazo el refresh token. Reconecta la cuenta desde Configuracion.",
+      })
+    }
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Error al sincronizar IOL" },
-      { status: 500 },
+      {
+        error: requiresReconnect
+          ? "IOL requiere reconectar la cuenta desde Configuracion > Integraciones"
+          : message,
+        code: requiresReconnect ? "IOL_REAUTH_REQUIRED" : "IOL_SYNC_ERROR",
+      },
+      { status: requiresReconnect ? 409 : 500 },
     )
   }
 }
