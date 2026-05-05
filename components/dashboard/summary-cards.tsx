@@ -5,6 +5,7 @@ import { formatCurrency } from '@/lib/currency'
 import { Currency } from '@/lib/types'
 import { TrendingUp, TrendingDown, Wallet, PiggyBank } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { WealthBreakdown } from '@/lib/wealth-summary'
 
 interface SummaryCardsProps {
   initialBalance: number
@@ -15,6 +16,7 @@ interface SummaryCardsProps {
   budgetedExpenses: number
   savings: number
   currency: Currency | null
+  wealth?: WealthBreakdown
 }
 
 export function SummaryCards({
@@ -26,6 +28,7 @@ export function SummaryCards({
   budgetedExpenses,
   savings,
   currency,
+  wealth,
 }: SummaryCardsProps) {
   const incomeVariance = totalIncome - budgetedIncome
   const expenseVariance = totalExpenses - budgetedExpenses
@@ -107,6 +110,42 @@ export function SummaryCards({
           </p>
         </CardContent>
       </Card>
+
+      {wealth && (
+        <Card className="md:col-span-2 lg:col-span-4">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Consolidado
+            </CardTitle>
+            <Wallet className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+              <div>
+                <p className="text-xs text-muted-foreground">Cash + divisas + inversiones</p>
+                <p className={cn(
+                  "mt-1 text-3xl font-bold font-mono",
+                  wealth.total >= 0 ? "text-success" : "text-destructive"
+                )}>
+                  {formatCurrency(wealth.total, currency)}
+                </p>
+              </div>
+              <div className="rounded-md bg-muted p-3">
+                <p className="text-xs text-muted-foreground">Cash</p>
+                <p className="mt-1 font-semibold font-mono">{formatCurrency(wealth.cash, currency)}</p>
+              </div>
+              <div className="rounded-md bg-muted p-3">
+                <p className="text-xs text-muted-foreground">Inversiones</p>
+                <p className="mt-1 font-semibold font-mono">{formatCurrency(wealth.investments, currency)}</p>
+              </div>
+              <div className="rounded-md bg-muted p-3">
+                <p className="text-xs text-muted-foreground">Divisas</p>
+                <p className="mt-1 font-semibold font-mono">{formatCurrency(wealth.foreignCurrencies, currency)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="md:col-span-2 lg:col-span-4">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

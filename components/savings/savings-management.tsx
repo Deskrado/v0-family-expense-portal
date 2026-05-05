@@ -2,8 +2,18 @@
 
 import { useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useCurrencies, useSavingsGoals, useUserSettings } from "@/components/dashboard/use-dashboard-data"
+import {
+  useBrokerPositions,
+  useCurrencies,
+  useFxQuotes,
+  useInvestments,
+  useMonthlySummary,
+  usePortfolioSnapshots,
+  useSavingsGoals,
+  useUserSettings,
+} from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
+import { getWealthBreakdown } from "@/lib/wealth-summary"
 import type { SavingsGoal } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -76,6 +86,11 @@ function goalToForm(goal: SavingsGoal): GoalForm {
 
 export function SavingsManagement() {
   const { data: goals, isLoading } = useSavingsGoals()
+  const { summary } = useMonthlySummary()
+  const { data: investments } = useInvestments()
+  const { data: brokerPositions } = useBrokerPositions()
+  const { data: portfolioSnapshots } = usePortfolioSnapshots()
+  const { data: fxQuotes } = useFxQuotes()
   const { data: currencies } = useCurrencies()
   const { data: settings } = useUserSettings()
   const [search, setSearch] = useState("")
@@ -87,6 +102,16 @@ export function SavingsManagement() {
 
   const defaultCurrency = settings?.default_currency || currencies?.find((currency) => currency.code === "ARS") || currencies?.[0] || null
   const defaultCurrencyId = settings?.default_currency_id || defaultCurrency?.id || ""
+  const cashBalance = (settings?.initial_balance || 0) + summary.savings
+  const wealthBreakdown = getWealthBreakdown({
+    cashBalance,
+    investments,
+    brokerPositions,
+    portfolioSnapshots,
+    savingsGoals: goals,
+    fxQuotes,
+    defaultCurrency,
+  })
   const visibleGoals = useMemo(() => {
     const query = search.toLowerCase()
     return (goals || []).filter((goal) => goal.name.toLowerCase().includes(query))
@@ -177,13 +202,37 @@ export function SavingsManagement() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Resumen de ahorro</CardTitle>
+          <CardTitle>Resumen patrimonial</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div>
+              <p className="text-sm text-muted-foreground">Total general</p>
+              <p className="text-3xl font-bold font-mono">{formatCurrency(wealthBreakdown.total, defaultCurrency)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-muted-foreground">Ahorro del mes</p>
+              <p className="text-xl font-semibold font-mono">{formatCurrency(summary.savings, defaultCurrency)}</p>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-md bg-muted p-3">
+              <p className="text-xs text-muted-foreground">Cash</p>
+              <p className="text-lg font-semibold font-mono">{formatCurrency(wealthBreakdown.cash, defaultCurrency)}</p>
+            </div>
+            <div className="rounded-md bg-muted p-3">
+              <p className="text-xs text-muted-foreground">Inversiones</p>
+              <p className="text-lg font-semibold font-mono">{formatCurrency(wealthBreakdown.investments, defaultCurrency)}</p>
+            </div>
+            <div className="rounded-md bg-muted p-3">
+              <p className="text-xs text-muted-foreground">Divisas extranjeras</p>
+              <p className="text-lg font-semibold font-mono">{formatCurrency(wealthBreakdown.foreignCurrencies, defaultCurrency)}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-baseline justify-between gap-3 border-t pt-4">
+            <div>
               <p className="text-sm text-muted-foreground">Acumulado en metas activas</p>
-              <p className="text-3xl font-bold font-mono">{formatCurrency(totals.current, defaultCurrency)}</p>
+              <p className="text-xl font-semibold font-mono">{formatCurrency(totals.current, defaultCurrency)}</p>
             </div>
             <div className="text-right">
               <p className="text-sm text-muted-foreground">Objetivo total</p>

@@ -19,6 +19,13 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useCategories, useGroups, useCurrencies, useCreditCards, useUserSettings } from "@/components/dashboard/use-dashboard-data"
+import { CreditCardSelectLabel } from "@/components/credit-cards/card-brand"
+import { formatCurrency } from "@/lib/currency"
+import {
+  addMonthsToDateOnly,
+  formatDateOnlyForDisplay,
+  getCreditCardStatementDueDate,
+} from "@/lib/credit-card-billing"
 import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
@@ -34,6 +41,9 @@ const transactionSchema = z.object({
   transaction_date: z.string().min(1, "La fecha es requerida"),
   payment_method: z.enum(["cash", "debit", "credit", "transfer"]).optional(),
   credit_card_id: z.string().optional(),
+  is_installment_purchase: z.boolean().default(false),
+  total_installments: z.coerce.number().optional(),
+  recurrence_end_date: z.string().optional(),
   is_recurring: z.boolean().default(false),
   notes: z.string().optional(),
 })
@@ -45,6 +55,19 @@ interface TransactionFormProps {
   initialData?: Partial<TransactionFormData> & { id?: string }
   backUrl?: string
   redirectUrl?: string
+}
+
+function getRecurringDates(startDate: string, endDate: string | undefined, monthsAhead: number) {
+  const count = Math.max(monthsAhead || 6, 1)
+  const dates: string[] = []
+
+  for (let index = 0; index < count; index += 1) {
+    const nextDate = addMonthsToDateOnly(startDate, index)
+    if (endDate && nextDate > endDate) break
+    dates.push(nextDate)
+  }
+
+  return dates
 }
 
 export function TransactionForm({ type, initialData, backUrl, redirectUrl }: TransactionFormProps) {
@@ -79,6 +102,9 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
       transaction_date: initialData?.transaction_date || new Date().toISOString().split("T")[0],
       payment_method: initialData?.payment_method || undefined,
       credit_card_id: initialData?.credit_card_id || "__none",
+      is_installment_purchase: false,
+      total_installments: 1,
+      recurrence_end_date: "",
       is_recurring: initialData?.is_recurring || false,
       notes: initialData?.notes || "",
     },
@@ -88,7 +114,19 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
   const selectedCurrencyId = watch("currency_id")
   const selectedCategoryId = watch("category_id")
   const selectedGroupId = watch("group_id")
+  const selectedCreditCardId = watch("credit_card_id")
   const paymentMethod = watch("payment_method")
+  const isInstallmentPurchase = watch("is_installment_purchase")
+  const transactionDate = watch("transaction_date")
+  const totalInstallments = Math.max(Number(watch("total_installments")) || 1, 1)
+  const amount = Number(watch("amount")) || 0
+  const selectedCreditCard = creditCards?.find((card) => card.id === selectedCreditCardId)
+  const installmentAmount = isInstallmentPurchase ? amount / totalInstallments : amount
+  const shouldShowCardRecurrence = type === "expense" && paymentMethod === "credit" && isRecurring && !isInstallmentPurchase && !initialData?.id
+  const showCreditCardBillingPreview = type === "expense" && paymentMethod === "credit" && selectedCreditCard && transactionDate && !initialData?.id
+  const creditCardBillingDate = showCreditCardBillingPreview
+    ? getCreditCardStatementDueDate(transactionDate, selectedCreditCard)
+    : transactionDate
 
   useEffect(() => {
     if (!selectedCurrencyId && defaultCurrency?.id) {
@@ -106,6 +144,14 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
     }
   }, [filteredCategories, selectedCategoryId, selectedGroupId, setValue])
 
+  useEffect(() => {
+    if (paymentMethod !== "credit") {
+      setValue("is_installment_purchase", false)
+      setValue("total_installments", 1)
+      setValue("credit_card_id", "__none")
+    }
+  }, [paymentMethod, setValue])
+
   const handleCategoryChange = (value: string) => {
     setValue("category_id", value, { shouldDirty: true, shouldValidate: true })
     const selectedCategory = filteredCategories.find((category) => category.id === value)
@@ -115,6 +161,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
   const onSubmit = async (data: TransactionFormData) => {
     setIsSubmitting(true)
     setError(null)
+    let createdPurchaseIdForCleanup: string | null = null
 
     try {
       const supabase = createClient()
@@ -126,42 +173,150 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
       }
 
       if (data.payment_method === "credit" && (!data.credit_card_id || data.credit_card_id === "__none")) {
-        setError("Selecciona una tarjeta para pagos con credito")
+        setError("Selecciona una tarjeta para pagos con crédito")
         return
       }
 
+      const shouldCreateInstallments = type === "expense" && data.payment_method === "credit" && data.is_installment_purchase
+      const isNewCreditCardExpense = type === "expense" && data.payment_method === "credit" && !initialData?.id
+      const creditCardForSubmit = isNewCreditCardExpense
+        ? creditCards?.find((card) => card.id === data.credit_card_id)
+        : null
+      const getBillingDate = (purchaseDate: string) =>
+        creditCardForSubmit ? getCreditCardStatementDueDate(purchaseDate, creditCardForSubmit) : purchaseDate
+      const shouldCreateRecurringCardDebit =
+        type === "expense" &&
+        data.payment_method === "credit" &&
+        data.is_recurring &&
+        !data.is_installment_purchase &&
+        !initialData?.id
+      const installments = Math.max(Number(data.total_installments) || 1, 1)
+      if (shouldCreateInstallments && installments < 2) {
+        setError("La cantidad de cuotas debe ser mayor a 1")
+        return
+      }
+      if (shouldCreateRecurringCardDebit && data.recurrence_end_date && data.recurrence_end_date < data.transaction_date) {
+        setError("La fecha de fin no puede ser anterior al inicio")
+        return
+      }
+
+      let creditCardPurchaseId: string | null = null
+      const billingTransactionDate = getBillingDate(data.transaction_date)
+      const transactionAmount = shouldCreateInstallments ? Number(data.amount) / installments : Number(data.amount)
+      const budgetedAmount = data.budgeted_amount || transactionAmount
+
+      if (shouldCreateInstallments) {
+        const { data: purchase, error: purchaseError } = await supabase
+          .from("credit_card_purchases")
+          .insert({
+            user_id: user.id,
+            credit_card_id: data.credit_card_id,
+            description: data.description.trim(),
+            total_amount: Number(data.amount),
+            installment_amount: transactionAmount,
+            total_installments: installments,
+            current_installment: 1,
+            start_date: data.transaction_date,
+            category_id: data.category_id === "__none" ? null : data.category_id || null,
+            currency_id: data.currency_id || null,
+            notes: data.notes?.trim() || null,
+            is_active: true,
+          })
+          .select("id")
+          .single()
+
+        if (purchaseError) throw purchaseError
+        creditCardPurchaseId = purchase.id
+        createdPurchaseIdForCleanup = purchase.id
+      }
+
+      const { is_installment_purchase, total_installments, recurrence_end_date, ...baseTransactionData } = data
       const transactionData = {
-        ...data,
+        ...baseTransactionData,
         type,
         user_id: user.id,
+        amount: transactionAmount,
         category_id: data.category_id === "__none" ? null : data.category_id || null,
         group_id: data.group_id === "__none" ? null : data.group_id || null,
         payment_method: data.payment_method || null,
         credit_card_id: data.payment_method === "credit" && data.credit_card_id !== "__none" ? data.credit_card_id || null : null,
-        budgeted_amount: data.budgeted_amount || data.amount,
+        budgeted_amount: budgetedAmount,
+        transaction_date: billingTransactionDate,
+        status: shouldCreateRecurringCardDebit ? "pending" : "approved",
+        approved_at: shouldCreateRecurringCardDebit ? null : new Date().toISOString(),
+        approved_by: shouldCreateRecurringCardDebit ? null : user.id,
+        notes: data.notes?.trim() || null,
       }
+      const recurringSeriesId = shouldCreateRecurringCardDebit ? crypto.randomUUID() : null
+      const creditCardBillingMetadata = isNewCreditCardExpense
+        ? {
+            purchase_date: data.transaction_date,
+            billing_date: billingTransactionDate,
+            billing_rule: "credit_card_statement_due",
+          }
+        : undefined
+      const transactionPayload = initialData?.id
+        ? transactionData
+        : {
+            ...transactionData,
+            credit_card_purchase_id: creditCardPurchaseId,
+            installment_number: creditCardPurchaseId ? 1 : null,
+            metadata: recurringSeriesId
+              ? {
+                  ...creditCardBillingMetadata,
+                  source: "recurring_card_debit",
+                  recurring_series_id: recurringSeriesId,
+                  recurrence_end_date: data.recurrence_end_date || null,
+                }
+              : creditCardBillingMetadata,
+          }
 
       if (initialData?.id) {
         const { error: updateError } = await supabase
           .from("transactions")
-          .update(transactionData)
+          .update(transactionPayload)
           .eq("id", initialData.id)
         
         if (updateError) throw updateError
       } else {
+        const insertPayload = shouldCreateRecurringCardDebit
+          ? getRecurringDates(
+              data.transaction_date,
+              data.recurrence_end_date || undefined,
+              settings?.dashboard_months_ahead || 6,
+            ).map((transactionDate, index) => ({
+              ...transactionPayload,
+              transaction_date: getBillingDate(transactionDate),
+              metadata: {
+                purchase_date: transactionDate,
+                billing_date: getBillingDate(transactionDate),
+                billing_rule: "credit_card_statement_due",
+                source: "recurring_card_debit",
+                recurring_series_id: recurringSeriesId,
+                recurrence_index: index + 1,
+                recurrence_end_date: data.recurrence_end_date || null,
+              },
+            }))
+          : transactionPayload
+
         const { error: insertError } = await supabase
           .from("transactions")
-          .insert(transactionData)
+          .insert(insertPayload)
         
         if (insertError) throw insertError
       }
 
       // Revalidate data
       mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+      mutate("credit-card-purchases")
       
       router.push(redirectUrl || "/dashboard")
       router.refresh()
     } catch (err) {
+      if (createdPurchaseIdForCleanup) {
+        const supabase = createClient()
+        await supabase.from("credit_card_purchases").delete().eq("id", createdPurchaseIdForCleanup)
+      }
       setError(err instanceof Error ? err.message : "Error al guardar")
     } finally {
       setIsSubmitting(false)
@@ -207,7 +362,9 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="transaction_date">Fecha</Label>
+              <Label htmlFor="transaction_date">
+                {type === "expense" && paymentMethod === "credit" ? "Fecha de compra" : "Fecha"}
+              </Label>
               <Input
                 id="transaction_date"
                 type="date"
@@ -218,6 +375,15 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
               )}
             </div>
           </div>
+
+          {showCreditCardBillingPreview && (
+            <div className="rounded-md bg-muted p-3 text-sm">
+              <p className="font-medium">Impacto en resumen y proyección</p>
+              <p className="text-muted-foreground">
+                Esta compra se computará como gasto el {formatDateOnlyForDisplay(creditCardBillingDate)}, según cierre día {selectedCreditCard.closing_day || "-"} y vencimiento día {selectedCreditCard.due_day || "-"}.
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
@@ -279,7 +445,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none">Sin categoria</SelectItem>
+                  <SelectItem value="__none">Sin categoría</SelectItem>
                   {filteredCategories.map((category) => (
                     <SelectItem key={category.id} value={category.id}>
                       {category.name}
@@ -319,7 +485,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
                   onValueChange={(value) => setValue("payment_method", value as "cash" | "debit" | "credit" | "transfer")}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar metodo" />
+                    <SelectValue placeholder="Seleccionar método" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cash">Efectivo</SelectItem>
@@ -334,17 +500,21 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
                 <div className="space-y-2">
                   <Label htmlFor="credit_card_id">Tarjeta</Label>
                   <Select
-                    value={watch("credit_card_id")}
+                    value={selectedCreditCardId}
                     onValueChange={(value) => setValue("credit_card_id", value)}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar tarjeta" />
+                      {selectedCreditCard ? (
+                        <CreditCardSelectLabel card={selectedCreditCard} />
+                      ) : (
+                        <SelectValue placeholder="Seleccionar tarjeta" />
+                      )}
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none">Sin tarjeta</SelectItem>
                       {creditCards?.filter((card) => card.is_active).map((card) => (
-                        <SelectItem key={card.id} value={card.id}>
-                          {card.name}{card.last_four ? ` **** ${card.last_four}` : ""}
+                        <SelectItem key={card.id} value={card.id} textValue={`${card.name} ${card.brand || ""} ${card.last_four || ""}`}>
+                          <CreditCardSelectLabel card={card} />
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -354,16 +524,73 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             </div>
           )}
 
+          {type === "expense" && paymentMethod === "credit" && !initialData?.id && (
+            <div className="rounded-md border p-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="is_installment_purchase"
+                    checked={isInstallmentPurchase}
+                    onCheckedChange={(checked) => {
+                      setValue("is_installment_purchase", checked, { shouldDirty: true })
+                      setValue("total_installments", checked ? Math.max(totalInstallments, 2) : 1, { shouldDirty: true })
+                    }}
+                  />
+                  <Label htmlFor="is_installment_purchase">Gasto en cuotas</Label>
+                </div>
+
+                {isInstallmentPurchase && (
+                  <div className="space-y-2">
+                    <Label htmlFor="total_installments">Cantidad de cuotas</Label>
+                    <Input
+                      id="total_installments"
+                      type="number"
+                      min={2}
+                      step={1}
+                      {...register("total_installments")}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {isInstallmentPurchase && (
+                <div className="mt-4 rounded-md bg-muted p-3">
+                  <p className="text-sm text-muted-foreground">Valor estimado de cada cuota</p>
+                  <p className="font-mono text-xl font-semibold">
+                    {formatCurrency(installmentAmount, selectedCreditCard?.currency || defaultCurrency)}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <Switch
               id="is_recurring"
               checked={isRecurring}
-              onCheckedChange={(checked) => setValue("is_recurring", checked)}
+              onCheckedChange={(checked) => setValue("is_recurring", checked, { shouldDirty: true })}
             />
             <Label htmlFor="is_recurring">
               {type === "expense" ? "Gasto recurrente" : "Ingreso recurrente"}
             </Label>
           </div>
+
+          {shouldShowCardRecurrence && (
+            <div className="rounded-md border p-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="recurrence_end_date">Activo hasta</Label>
+                  <Input id="recurrence_end_date" type="date" {...register("recurrence_end_date")} />
+                </div>
+                <div className="rounded-md bg-muted p-3">
+                  <p className="text-sm text-muted-foreground">Débito automático</p>
+                  <p className="text-sm">
+                    Se crearán movimientos mensuales en la tarjeta. Si no indicás fin, se generarán los próximos {settings?.dashboard_months_ahead || 6} meses.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="notes">Notas</Label>

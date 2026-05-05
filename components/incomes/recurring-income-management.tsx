@@ -10,7 +10,7 @@ import {
   useUserSettings,
 } from "@/components/dashboard/use-dashboard-data"
 import { useDashboard } from "@/components/dashboard/dashboard-context"
-import { formatCurrency, getMonthName } from "@/lib/currency"
+import { formatCurrency } from "@/lib/currency"
 import type { RecurringIncomeTemplate } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -116,6 +116,9 @@ export function RecurringIncomeManagement() {
 
   const totals = useMemo(() => {
     return (templates || []).reduce((total, template) => total + (template.is_active ? Number(template.amount) : 0), 0)
+  }, [templates])
+  const indefiniteTemplates = useMemo(() => {
+    return (templates || []).filter((template) => template.is_active && !template.end_date).length
   }, [templates])
 
   const resetForm = () => {
@@ -237,9 +240,12 @@ export function RecurringIncomeManagement() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Periodo</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">Sin finalización</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold">{getMonthName(selectedMonth)} {selectedYear}</CardContent>
+          <CardContent>
+            <p className="text-2xl font-bold">{indefiniteTemplates}</p>
+            <p className="text-xs text-muted-foreground">Se proyectan hasta pausarlos</p>
+          </CardContent>
         </Card>
       </div>
 
@@ -298,7 +304,7 @@ export function RecurringIncomeManagement() {
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label>Dia de cobro</Label>
+                <Label>Día de cobro</Label>
                 <Input type="number" min={1} max={28} value={form.day_of_month} onChange={(event) => setForm({ ...form, day_of_month: event.target.value })} />
               </div>
               <div className="space-y-2">
@@ -306,9 +312,12 @@ export function RecurringIncomeManagement() {
                 <Input type="date" value={form.start_date} onChange={(event) => setForm({ ...form, start_date: event.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label>Fin</Label>
+                <Label>Fin opcional</Label>
                 <Input type="date" value={form.end_date} onChange={(event) => setForm({ ...form, end_date: event.target.value })} />
               </div>
+            </div>
+            <div className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+              Si no cargás una fecha de fin, el ingreso queda vigente todos los meses y se incluye en la proyección hasta que lo pauses o lo elimines.
             </div>
             <div className="space-y-2">
               <Label>Notas</Label>
@@ -354,7 +363,8 @@ export function RecurringIncomeManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Descripción</TableHead>
-                      <TableHead>Dia</TableHead>
+                      <TableHead>Día</TableHead>
+                      <TableHead>Vigencia</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="w-10"></TableHead>
@@ -368,6 +378,13 @@ export function RecurringIncomeManagement() {
                           <div className="text-xs text-muted-foreground">{template.category?.name || "Sin categoria"}</div>
                         </TableCell>
                         <TableCell>{template.day_of_month}</TableCell>
+                        <TableCell>
+                          {template.end_date ? (
+                            <span>Hasta {new Date(`${template.end_date}T00:00:00`).toLocaleDateString("es-AR")}</span>
+                          ) : (
+                            <Badge variant="outline">Indefinido</Badge>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right font-mono">{formatCurrency(Number(template.amount), template.currency)}</TableCell>
                         <TableCell>
                           <Badge variant={template.is_active ? "secondary" : "outline"}>{template.is_active ? "Activo" : "Pausado"}</Badge>

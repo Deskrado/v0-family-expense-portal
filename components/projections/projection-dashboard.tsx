@@ -5,10 +5,13 @@ import { useDashboard } from "@/components/dashboard/dashboard-context"
 import {
   useCreditCardPurchases,
   useCurrencies,
+  useRecurringIncomeTemplates,
   useYearlyTransactions,
 } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency, getMonthName } from "@/lib/currency"
 import { getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
+import { getRecurringProjectionForMonth } from "@/lib/recurring-projection"
+import { getCreditCardInstallmentDueDate } from "@/lib/credit-card-billing"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -24,6 +27,7 @@ export function ProjectionDashboard() {
   const { selectedMonth, selectedYear } = useDashboard()
   const { data: yearlyTransactions, isLoading: transactionsLoading } = useYearlyTransactions()
   const { data: purchases, isLoading: purchasesLoading } = useCreditCardPurchases()
+  const { data: recurringIncomeTemplates } = useRecurringIncomeTemplates()
   const { data: currencies } = useCurrencies()
   const currency = currencies?.find((item) => item.code === "ARS") || currencies?.[0] || null
   const isLoading = transactionsLoading || purchasesLoading
@@ -33,7 +37,7 @@ export function ProjectionDashboard() {
     const monthData = { month, year: selectedYear, income: 0, expenses: 0, installments: 0, savings: 0 }
 
     yearlyTransactions?.forEach((transaction) => {
-      if (getMonthIndexFromDateOnly(transaction.transaction_date) === index) {
+      if (getYearFromDateOnly(transaction.transaction_date) === selectedYear && getMonthIndexFromDateOnly(transaction.transaction_date) === index) {
         const projectedAmount = transaction.status === "rejected" ? 0 : Number(transaction.amount)
         if (transaction.type === "income") {
           monthData.income += projectedAmount
@@ -43,11 +47,19 @@ export function ProjectionDashboard() {
       }
     })
 
+    const recurringProjection = getRecurringProjectionForMonth(yearlyTransactions, selectedYear, index, selectedYear, selectedMonth, recurringIncomeTemplates)
+    monthData.income += recurringProjection.income
+    monthData.expenses += recurringProjection.expenses
+
     purchases?.forEach((purchase) => {
-      const startMonthIndex = getMonthIndexFromDateOnly(purchase.start_date)
-      const startYear = getYearFromDateOnly(purchase.start_date)
-      const monthsSinceStart = (selectedYear - startYear) * 12 + index - startMonthIndex
-      if (monthsSinceStart >= 0 && monthsSinceStart < purchase.total_installments) {
+      for (let installmentIndex = 0; installmentIndex < purchase.total_installments; installmentIndex += 1) {
+        const installmentDueDate = getCreditCardInstallmentDueDate(purchase.start_date, purchase.credit_card, installmentIndex)
+        if (getYearFromDateOnly(installmentDueDate) !== selectedYear || getMonthIndexFromDateOnly(installmentDueDate) !== index) continue
+
+        const hasCurrentTransaction = (purchase.transactions || []).some(
+          (transaction) => Number(transaction.installment_number || 0) === installmentIndex + 1,
+        )
+        if (hasCurrentTransaction) return
         monthData.installments += Number(purchase.installment_amount)
       }
     })
@@ -57,7 +69,7 @@ export function ProjectionDashboard() {
     return monthData
   })
 
-  const projectedTotal = monthlyData.slice(selectedMonth - 1).reduce((total, item) => total + item.savings, 0)
+  const projectedTotal = monthlyData.reduce((total, item) => total + item.savings, 0)
   const installmentsTotal = monthlyData.reduce((total, item) => total + item.installments, 0)
 
   if (isLoading) {
@@ -73,7 +85,7 @@ export function ProjectionDashboard() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Ahorro proyectado restante</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">Ahorro proyectado del año</CardTitle>
           </CardHeader>
           <CardContent className={`text-2xl font-bold font-mono ${projectedTotal >= 0 ? "text-success" : "text-destructive"}`}>
             {formatCurrency(projectedTotal, currency)}

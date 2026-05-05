@@ -134,7 +134,6 @@ export function useMonthlyTransactions() {
 
 export function useYearlyTransactions() {
   const { selectedYear } = useDashboard()
-  const startDate = `${selectedYear}-01-01`
   const endDate = `${selectedYear}-12-31`
 
   return useSWR<Transaction[]>(
@@ -150,7 +149,6 @@ export function useYearlyTransactions() {
           credit_card:credit_cards(*)
         `)
         .is("archived_at", null)
-        .gte("transaction_date", startDate)
         .lte("transaction_date", endDate)
         .order("transaction_date", { ascending: false })
       if (error) throw error
@@ -166,7 +164,8 @@ export function useCreditCardPurchases() {
       .select(`
         *,
         credit_card:credit_cards(*, currency:currencies(*)),
-        category:categories(*)
+        category:categories(*),
+        transactions(id, installment_number)
       `)
       .eq("is_active", true)
       .order("start_date", { ascending: false })

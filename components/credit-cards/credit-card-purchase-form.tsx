@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatCurrency } from "@/lib/currency"
+import { CreditCardSelectLabel } from "@/components/credit-cards/card-brand"
+import { formatDateOnlyForDisplay, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { mutate } from "swr"
@@ -36,6 +38,9 @@ export function CreditCardPurchaseForm() {
   const [error, setError] = useState<string | null>(null)
 
   const selectedCard = cards?.find((card) => card.id === form.credit_card_id)
+  const firstInstallmentDueDate = selectedCard && form.start_date
+    ? getCreditCardStatementDueDate(form.start_date, selectedCard)
+    : form.start_date
   const installmentAmount = useMemo(() => {
     const total = Number(form.total_amount) || 0
     const installments = Math.max(Number(form.total_installments) || 1, 1)
@@ -111,12 +116,16 @@ export function CreditCardPurchaseForm() {
             <Label>Tarjeta</Label>
             <Select value={form.credit_card_id} onValueChange={(value) => setForm({ ...form, credit_card_id: value })}>
               <SelectTrigger>
-                <SelectValue placeholder="Seleccionar tarjeta" />
+                {selectedCard ? (
+                  <CreditCardSelectLabel card={selectedCard} />
+                ) : (
+                  <SelectValue placeholder="Seleccionar tarjeta" />
+                )}
               </SelectTrigger>
               <SelectContent>
                 {cards?.filter((card) => card.is_active).map((card) => (
-                  <SelectItem key={card.id} value={card.id}>
-                    {card.name}{card.last_four ? ` **** ${card.last_four}` : ""}
+                  <SelectItem key={card.id} value={card.id} textValue={`${card.name} ${card.brand || ""} ${card.last_four || ""}`}>
+                    <CreditCardSelectLabel card={card} />
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -126,7 +135,7 @@ export function CreditCardPurchaseForm() {
             <Label>Categoria</Label>
             <Select value={form.category_id} onValueChange={(value) => setForm({ ...form, category_id: value })}>
               <SelectTrigger>
-                <SelectValue placeholder="Seleccionar categoria" />
+                <SelectValue placeholder="Seleccionar categoría" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none">Sin categoria</SelectItem>
@@ -155,7 +164,7 @@ export function CreditCardPurchaseForm() {
             <Input id="total_installments" type="number" min={1} value={form.total_installments} onChange={(event) => setForm({ ...form, total_installments: event.target.value })} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="start_date">Inicio</Label>
+            <Label htmlFor="start_date">Fecha de compra</Label>
             <Input id="start_date" type="date" value={form.start_date} onChange={(event) => setForm({ ...form, start_date: event.target.value })} />
           </div>
         </div>
@@ -163,6 +172,11 @@ export function CreditCardPurchaseForm() {
         <div className="rounded-md border p-3">
           <p className="text-sm text-muted-foreground">Valor de cuota</p>
           <p className="text-xl font-semibold font-mono">{formatCurrency(installmentAmount, selectedCard?.currency)}</p>
+          {selectedCard && form.start_date && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              La primera cuota impactará el {formatDateOnlyForDisplay(firstInstallmentDueDate)} según el cierre y vencimiento de la tarjeta.
+            </p>
+          )}
         </div>
 
         <div className="flex gap-2 pt-2">

@@ -5,6 +5,7 @@ import { formatCurrency } from '@/lib/currency'
 import { Currency } from '@/lib/types'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
+import type { WealthBreakdown } from '@/lib/wealth-summary'
 
 interface SavingsData {
   currentMonth: number
@@ -17,9 +18,10 @@ interface SavingsData {
 interface SavingsOverviewProps {
   data: SavingsData
   currency: Currency | null
+  wealth?: WealthBreakdown
 }
 
-export function SavingsOverview({ data, currency }: SavingsOverviewProps) {
+export function SavingsOverview({ data, currency, wealth }: SavingsOverviewProps) {
   const monthlyProgress = data.monthlyTarget > 0 
     ? Math.min((data.currentMonth / data.monthlyTarget) * 100, 100) 
     : 0
@@ -33,9 +35,37 @@ export function SavingsOverview({ data, currency }: SavingsOverviewProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Resumen de Ahorros</CardTitle>
+        <CardTitle className="text-lg">Resumen de ahorros</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {wealth && (
+          <div className="rounded-lg border p-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium">Total general</span>
+              <span className={cn(
+                "text-xl font-bold font-mono",
+                wealth.total >= 0 ? "text-success" : "text-destructive"
+              )}>
+                {formatCurrency(wealth.total, currency)}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-md bg-muted p-3">
+                <p className="text-xs text-muted-foreground">Cash</p>
+                <p className="font-semibold font-mono">{formatCurrency(wealth.cash, currency)}</p>
+              </div>
+              <div className="rounded-md bg-muted p-3">
+                <p className="text-xs text-muted-foreground">Inversiones</p>
+                <p className="font-semibold font-mono">{formatCurrency(wealth.investments, currency)}</p>
+              </div>
+              <div className="rounded-md bg-muted p-3">
+                <p className="text-xs text-muted-foreground">Divisas</p>
+                <p className="font-semibold font-mono">{formatCurrency(wealth.foreignCurrencies, currency)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">Ahorro del mes</span>

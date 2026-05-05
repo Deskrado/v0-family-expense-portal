@@ -4,13 +4,29 @@ import { SummaryCards } from "@/components/dashboard/summary-cards"
 import { ExpenseIncomeTable } from "@/components/dashboard/expense-income-table"
 import { AnnualProjectionChart } from "@/components/dashboard/annual-projection-chart"
 import { SavingsOverview } from "@/components/dashboard/savings-overview"
-import { useCurrencies, useMonthlySummary, useMonthlyTransactions, useYearlyTransactions, useCreditCardPurchases, useUserSettings } from "@/components/dashboard/use-dashboard-data"
+import {
+  useBrokerPositions,
+  useCreditCardPurchases,
+  useCurrencies,
+  useFxQuotes,
+  useInvestments,
+  useMonthlySummary,
+  useMonthlyTransactions,
+  usePortfolioSnapshots,
+  useRecurringIncomeTemplates,
+  useSavingsGoals,
+  useUserSettings,
+  useYearlyTransactions,
+} from "@/components/dashboard/use-dashboard-data"
 import { useDashboard } from "@/components/dashboard/dashboard-context"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import Link from "next/link"
 import type { GroupSummary } from "@/lib/types"
 import { getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
+import { getRecurringProjectionForMonth } from "@/lib/recurring-projection"
+import { getCreditCardInstallmentDueDate } from "@/lib/credit-card-billing"
+import { getWealthBreakdown } from "@/lib/wealth-summary"
 
 export default function DashboardPage() {
   const { selectedMonth, selectedYear } = useDashboard()
@@ -18,6 +34,12 @@ export default function DashboardPage() {
   const { data: monthlyTransactions, isLoading: transactionsLoading } = useMonthlyTransactions()
   const { data: yearlyTransactions, isLoading: yearlyLoading } = useYearlyTransactions()
   const { data: creditCardPurchases, isLoading: purchasesLoading } = useCreditCardPurchases()
+  const { data: recurringIncomeTemplates } = useRecurringIncomeTemplates()
+  const { data: investments } = useInvestments()
+  const { data: brokerPositions } = useBrokerPositions()
+  const { data: portfolioSnapshots } = usePortfolioSnapshots()
+  const { data: savingsGoals } = useSavingsGoals()
+  const { data: fxQuotes } = useFxQuotes()
   const { data: currencies } = useCurrencies()
   const { data: settings } = useUserSettings()
 
@@ -75,7 +97,7 @@ export default function DashboardPage() {
     
     if (yearlyTransactions) {
       yearlyTransactions.forEach((t) => {
-        if (getMonthIndexFromDateOnly(t.transaction_date) === i) {
+        if (getYearFromDateOnly(t.transaction_date) === selectedYear && getMonthIndexFromDateOnly(t.transaction_date) === i) {
           const projectedAmount = t.status === "rejected" ? 0 : Number(t.amount)
           if (t.type === "income") {
             monthData.income += projectedAmount
@@ -85,15 +107,21 @@ export default function DashboardPage() {
         }
       })
     }
+
+    const recurringProjection = getRecurringProjectionForMonth(yearlyTransactions, selectedYear, i, selectedYear, selectedMonth, recurringIncomeTemplates)
+    monthData.income += recurringProjection.income
+    monthData.expenses += recurringProjection.expenses
     
-    // Add projected credit card installments for future months
-    if (i >= selectedMonth - 1 && creditCardPurchases) {
+    if (creditCardPurchases) {
       creditCardPurchases.forEach((purchase) => {
-        const startMonth = getMonthIndexFromDateOnly(purchase.start_date)
-        const startYear = getYearFromDateOnly(purchase.start_date)
-        const monthsSinceStart = (selectedYear - startYear) * 12 + i - startMonth
-        
-        if (monthsSinceStart >= 0 && monthsSinceStart < purchase.total_installments) {
+        for (let installmentIndex = 0; installmentIndex < purchase.total_installments; installmentIndex += 1) {
+          const installmentDueDate = getCreditCardInstallmentDueDate(purchase.start_date, purchase.credit_card, installmentIndex)
+          if (getYearFromDateOnly(installmentDueDate) !== selectedYear || getMonthIndexFromDateOnly(installmentDueDate) !== i) continue
+
+          const hasCurrentTransaction = (purchase.transactions || []).some(
+            (transaction) => Number(transaction.installment_number || 0) === installmentIndex + 1,
+          )
+          if (hasCurrentTransaction) return
           monthData.expenses += Number(purchase.installment_amount)
         }
       })
@@ -105,6 +133,16 @@ export default function DashboardPage() {
 
   const previousMonthSavings = monthlyData[selectedMonth - 2]?.savings || 0
   const yearToDateSavings = monthlyData.slice(0, selectedMonth).reduce((total, item) => total + item.savings, 0)
+  const cashBalance = (settings?.initial_balance || 0) + summary.savings
+  const wealthBreakdown = getWealthBreakdown({
+    cashBalance,
+    investments,
+    brokerPositions,
+    portfolioSnapshots,
+    savingsGoals,
+    fxQuotes,
+    defaultCurrency: currency,
+  })
 
   return (
     <div className="space-y-6">
@@ -127,13 +165,14 @@ export default function DashboardPage() {
       {/* Summary Cards */}
       <SummaryCards
         initialBalance={settings?.initial_balance || 0}
-        finalBalance={(settings?.initial_balance || 0) + summary.savings}
+        finalBalance={cashBalance}
         totalIncome={summary.totalIncome}
         totalExpenses={summary.totalExpenses}
         budgetedIncome={summary.budgetedIncome}
         budgetedExpenses={summary.budgetedExpenses}
         savings={summary.savings}
         currency={currency}
+        wealth={wealthBreakdown}
       />
 
       {/* Expense/Income Tables */}
@@ -170,6 +209,7 @@ export default function DashboardPage() {
           yearTarget: settings?.annual_savings_target || 0,
         }}
         currency={currency}
+        wealth={wealthBreakdown}
       />
     </div>
   )

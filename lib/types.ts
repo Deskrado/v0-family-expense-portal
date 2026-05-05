@@ -168,6 +168,7 @@ export interface CreditCardPurchase {
   created_at: string
   credit_card?: CreditCard
   category?: Category
+  transactions?: Pick<Transaction, 'id' | 'installment_number'>[]
 }
 
 export interface Budget {

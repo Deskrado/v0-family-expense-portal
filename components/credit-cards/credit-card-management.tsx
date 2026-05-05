@@ -5,7 +5,9 @@ import { createClient } from "@/lib/supabase/client"
 import { useCreditCardPurchases, useCreditCards, useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
 import { dateOnlyToLocalDate } from "@/lib/date-only"
+import { getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
 import type { CreditCard } from "@/lib/types"
+import { CARD_BRANDS, CardBrandMark, CreditCardSelectLabel, getCardBrandLabel, normalizeCardBrand } from "@/components/credit-cards/card-brand"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -57,7 +59,7 @@ type CardFormState = {
 
 const emptyCardForm: CardFormState = {
   name: "",
-  brand: "",
+  brand: "__none",
   last_four: "",
   credit_limit: "",
   closing_day: "",
@@ -69,7 +71,7 @@ const emptyCardForm: CardFormState = {
 function cardToForm(card: CreditCard): CardFormState {
   return {
     name: card.name,
-    brand: card.brand || "",
+    brand: normalizeCardBrand(card.brand),
     last_four: card.last_four || "",
     credit_limit: card.credit_limit?.toString() || "",
     closing_day: card.closing_day?.toString() || "",
@@ -94,7 +96,7 @@ export function CreditCardManagement() {
   const visibleCards = useMemo(() => {
     const query = search.toLowerCase()
     return (cards || []).filter((card) =>
-      `${card.name} ${card.brand || ""} ${card.last_four || ""}`.toLowerCase().includes(query)
+      `${card.name} ${getCardBrandLabel(card.brand)} ${card.last_four || ""}`.toLowerCase().includes(query)
     )
   }, [cards, search])
 
@@ -149,7 +151,7 @@ export function CreditCardManagement() {
       const payload = {
         user_id: user.id,
         name: form.name.trim(),
-        brand: form.brand.trim() || null,
+        brand: form.brand === "__none" ? null : form.brand,
         last_four: form.last_four.trim() || null,
         credit_limit: form.credit_limit ? Number(form.credit_limit) : null,
         closing_day: form.closing_day ? Number(form.closing_day) : null,
@@ -194,7 +196,7 @@ export function CreditCardManagement() {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle>Tarjetas de credito</CardTitle>
+            <CardTitle>Tarjetas de crédito</CardTitle>
             <div className="flex gap-2">
               <div className="relative flex-1 sm:w-64">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -235,7 +237,7 @@ export function CreditCardManagement() {
                   <TableRow>
                     <TableHead>Tarjeta</TableHead>
                     <TableHead>Marca</TableHead>
-                    <TableHead className="text-right">Limite</TableHead>
+                    <TableHead className="text-right">Límite</TableHead>
                     <TableHead>Cierre</TableHead>
                     <TableHead>Vencimiento</TableHead>
                     <TableHead>Estado</TableHead>
@@ -251,12 +253,17 @@ export function CreditCardManagement() {
                           <span className="ml-2 text-muted-foreground">**** {card.last_four}</span>
                         )}
                       </TableCell>
-                      <TableCell>{card.brand || "-"}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <CardBrandMark brand={card.brand} />
+                          <span>{getCardBrandLabel(card.brand)}</span>
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right font-mono">
                         {card.credit_limit ? formatCurrency(Number(card.credit_limit), card.currency) : "-"}
                       </TableCell>
-                      <TableCell>{card.closing_day ? `Dia ${card.closing_day}` : "-"}</TableCell>
-                      <TableCell>{card.due_day ? `Dia ${card.due_day}` : "-"}</TableCell>
+                      <TableCell>{card.closing_day ? `Día ${card.closing_day}` : "-"}</TableCell>
+                      <TableCell>{card.due_day ? `Día ${card.due_day}` : "-"}</TableCell>
                       <TableCell>
                         <Badge variant={card.is_active ? "secondary" : "outline"}>
                           {card.is_active ? "Activa" : "Inactiva"}
@@ -308,7 +315,8 @@ export function CreditCardManagement() {
                   <TableRow>
                     <TableHead>Compra</TableHead>
                     <TableHead>Tarjeta</TableHead>
-                    <TableHead>Inicio</TableHead>
+                    <TableHead>Compra</TableHead>
+                    <TableHead>Primer vencimiento</TableHead>
                     <TableHead>Cuotas</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Cuota</TableHead>
@@ -318,8 +326,13 @@ export function CreditCardManagement() {
                   {purchases.map((purchase) => (
                     <TableRow key={purchase.id}>
                       <TableCell className="font-medium">{purchase.description}</TableCell>
-                      <TableCell>{purchase.credit_card?.name || "-"}</TableCell>
+                      <TableCell>
+                        {purchase.credit_card ? <CreditCardSelectLabel card={purchase.credit_card} /> : "-"}
+                      </TableCell>
                       <TableCell>{(dateOnlyToLocalDate(purchase.start_date) || new Date(purchase.start_date)).toLocaleDateString("es-AR")}</TableCell>
+                      <TableCell>
+                        {(dateOnlyToLocalDate(getCreditCardStatementDueDate(purchase.start_date, purchase.credit_card)) || new Date(purchase.start_date)).toLocaleDateString("es-AR")}
+                      </TableCell>
                       <TableCell>{purchase.current_installment}/{purchase.total_installments}</TableCell>
                       <TableCell className="text-right font-mono">
                         {formatCurrency(Number(purchase.total_amount), purchase.credit_card?.currency)}
@@ -351,12 +364,26 @@ export function CreditCardManagement() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="brand">Marca</Label>
-                <Input id="brand" placeholder="Visa, Mastercard..." value={form.brand} onChange={(event) => setForm({ ...form, brand: event.target.value })} />
+                <Select value={form.brand} onValueChange={(value) => setForm({ ...form, brand: value })}>
+                  <SelectTrigger id="brand">
+                    <SelectValue placeholder="Seleccionar marca" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CARD_BRANDS.map((brand) => (
+                      <SelectItem key={brand.value} value={brand.value}>
+                        <span className="flex items-center gap-2">
+                          <CardBrandMark brand={brand.value} />
+                          {brand.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="last_four">Ultimos 4</Label>
+                <Label htmlFor="last_four">Últimos 4</Label>
                 <Input id="last_four" maxLength={4} value={form.last_four} onChange={(event) => setForm({ ...form, last_four: event.target.value })} />
               </div>
               <div className="space-y-2">
@@ -370,7 +397,7 @@ export function CreditCardManagement() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="credit_limit">Limite</Label>
+                <Label htmlFor="credit_limit">Límite</Label>
                 <Input id="credit_limit" type="number" step="0.01" value={form.credit_limit} onChange={(event) => setForm({ ...form, credit_limit: event.target.value })} />
               </div>
               <div className="space-y-2">
