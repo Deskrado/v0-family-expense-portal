@@ -8,6 +8,8 @@ type IolTokenResponse = {
 export type IolSecret = IolTokenResponse & {
   obtained_at: string
   base_url: string
+  username?: string
+  password?: string
 }
 
 export async function loginToIol(input: {

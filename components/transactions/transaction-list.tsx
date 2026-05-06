@@ -252,14 +252,21 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              {transaction.type === "income" && status === "pending" && (
+                              {status === "pending" && (
                                 <>
-                                  <DropdownMenuItem onClick={() => updateStatus(transaction, "approved")}>
-                                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                                  <DropdownMenuItem
+                                    onClick={() => updateStatus(transaction, "approved")}
+                                    disabled={actionId === `approved-${transaction.id}`}
+                                  >
+                                    {actionId === `approved-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                                     Aprobar
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem className="text-destructive" onClick={() => updateStatus(transaction, "rejected")}>
-                                    <XCircle className="mr-2 h-4 w-4" />
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => updateStatus(transaction, "rejected")}
+                                    disabled={actionId === `rejected-${transaction.id}`}
+                                  >
+                                    {actionId === `rejected-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
                                     Rechazar
                                   </DropdownMenuItem>
                                 </>

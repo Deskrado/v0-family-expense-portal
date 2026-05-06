@@ -105,6 +105,32 @@ export function useCreditCards() {
   })
 }
 
+export function useCreditCardStatementTransactions(year: number, month: number) {
+  const endDate = new Date(year, month, 0).toISOString().split("T")[0]
+
+  return useSWR<Transaction[]>(
+    `credit-card-statement-transactions-${year}-${month}`,
+    async () => {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select(`
+          *,
+          category:categories(*),
+          group:groups(*),
+          currency:currencies(*),
+          credit_card:credit_cards(*)
+        `)
+        .is("archived_at", null)
+        .eq("type", "expense")
+        .eq("payment_method", "credit")
+        .lte("transaction_date", endDate)
+        .order("transaction_date", { ascending: false })
+      if (error) throw error
+      return data || []
+    }
+  )
+}
+
 export function useMonthlyTransactions() {
   const { selectedMonth, selectedYear } = useDashboard()
   const startDate = new Date(selectedYear, selectedMonth - 1, 1).toISOString().split("T")[0]

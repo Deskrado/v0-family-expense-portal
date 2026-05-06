@@ -47,6 +47,8 @@ export async function POST(request: NextRequest) {
       ...token,
       obtained_at: new Date().toISOString(),
       base_url: baseUrl,
+      username,
+      password,
     })
     const expiresAt = new Date(Date.now() + Number(token.expires_in || 900) * 1000).toISOString()
 

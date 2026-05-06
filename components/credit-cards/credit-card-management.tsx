@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useCreditCardPurchases, useCreditCards, useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
+import { useDashboard } from "@/components/dashboard/dashboard-context"
+import { useCreditCardPurchases, useCreditCards, useCreditCardStatementTransactions, useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
-import { dateOnlyToLocalDate } from "@/lib/date-only"
-import { getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
-import type { CreditCard } from "@/lib/types"
+import { dateOnlyToLocalDate, getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
+import { getCreditCardInstallmentDueDate, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
+import type { CreditCard, Transaction } from "@/lib/types"
 import { CARD_BRANDS, CardBrandMark, CreditCardSelectLabel, getCardBrandLabel, normalizeCardBrand } from "@/components/credit-cards/card-brand"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -81,11 +82,39 @@ function cardToForm(card: CreditCard): CardFormState {
   }
 }
 
+function transactionStatementKey(transaction: Transaction) {
+  const metadata = transaction.metadata || {}
+  const seriesId = typeof metadata.recurring_series_id === "string" ? metadata.recurring_series_id : null
+  if (seriesId) return `series:${seriesId}`
+
+  return [
+    transaction.description.trim().toLowerCase(),
+    transaction.category_id || "no-category",
+    transaction.group_id || "no-group",
+    transaction.credit_card_id || "no-card",
+    transaction.currency_id || "no-currency",
+  ].join("|")
+}
+
+function isTransactionInMonth(transaction: Transaction, year: number, month: number) {
+  return getYearFromDateOnly(transaction.transaction_date) === year && getMonthIndexFromDateOnly(transaction.transaction_date) === month - 1
+}
+
+function isTransactionBeforeOrInMonth(transaction: Transaction, year: number, month: number) {
+  const transactionYear = getYearFromDateOnly(transaction.transaction_date)
+  const transactionMonth = getMonthIndexFromDateOnly(transaction.transaction_date) + 1
+  return transactionYear < year || (transactionYear === year && transactionMonth <= month)
+}
+
 export function CreditCardManagement() {
+  const { selectedMonth, selectedYear } = useDashboard()
+  const nextStatementMonth = selectedMonth === 12 ? 1 : selectedMonth + 1
+  const nextStatementYear = selectedMonth === 12 ? selectedYear + 1 : selectedYear
   const { data: cards, isLoading } = useCreditCards()
   const { data: currencies } = useCurrencies()
   const { data: settings } = useUserSettings()
   const { data: purchases, isLoading: purchasesLoading } = useCreditCardPurchases()
+  const { data: statementTransactions } = useCreditCardStatementTransactions(nextStatementYear, nextStatementMonth)
   const [search, setSearch] = useState("")
   const [form, setForm] = useState<CardFormState>(emptyCardForm)
   const [editingCard, setEditingCard] = useState<CreditCard | null>(null)
@@ -101,6 +130,70 @@ export function CreditCardManagement() {
   }, [cards, search])
 
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
+  const nextStatementTotals = useMemo(() => {
+    const totalsByCard = new Map<string, number>()
+    const targetTransactions = (statementTransactions || []).filter((transaction) =>
+      transaction.status !== "rejected" &&
+      transaction.credit_card_id &&
+      isTransactionInMonth(transaction, nextStatementYear, nextStatementMonth)
+    )
+
+    for (const transaction of targetTransactions) {
+      totalsByCard.set(
+        transaction.credit_card_id!,
+        (totalsByCard.get(transaction.credit_card_id!) || 0) + Number(transaction.budgeted_amount || transaction.amount || 0),
+      )
+    }
+
+    const actualRecurringKeys = new Set(
+      targetTransactions
+        .filter((transaction) => transaction.is_recurring)
+        .map(transactionStatementKey),
+    )
+    const latestRecurringByKey = new Map<string, Transaction>()
+
+    for (const transaction of statementTransactions || []) {
+      if (!transaction.credit_card_id || !transaction.is_recurring || transaction.status === "rejected") continue
+      if (!isTransactionBeforeOrInMonth(transaction, nextStatementYear, nextStatementMonth)) continue
+
+      const endDate = typeof transaction.metadata?.recurrence_end_date === "string" ? transaction.metadata.recurrence_end_date : null
+      const targetDate = `${nextStatementYear}-${String(nextStatementMonth).padStart(2, "0")}-01`
+      if (endDate && targetDate > endDate) continue
+
+      const key = transactionStatementKey(transaction)
+      const current = latestRecurringByKey.get(key)
+      if (!current || transaction.transaction_date > current.transaction_date) {
+        latestRecurringByKey.set(key, transaction)
+      }
+    }
+
+    for (const [key, transaction] of latestRecurringByKey.entries()) {
+      if (actualRecurringKeys.has(key)) continue
+      totalsByCard.set(
+        transaction.credit_card_id!,
+        (totalsByCard.get(transaction.credit_card_id!) || 0) + Number(transaction.budgeted_amount || transaction.amount || 0),
+      )
+    }
+
+    for (const purchase of purchases || []) {
+      for (let installmentIndex = 0; installmentIndex < purchase.total_installments; installmentIndex += 1) {
+        const dueDate = getCreditCardInstallmentDueDate(purchase.start_date, purchase.credit_card, installmentIndex)
+        if (getYearFromDateOnly(dueDate) !== nextStatementYear || getMonthIndexFromDateOnly(dueDate) !== nextStatementMonth - 1) continue
+
+        const hasTransaction = (purchase.transactions || []).some(
+          (transaction) => Number(transaction.installment_number || 0) === installmentIndex + 1,
+        )
+        if (hasTransaction) continue
+
+        totalsByCard.set(
+          purchase.credit_card_id,
+          (totalsByCard.get(purchase.credit_card_id) || 0) + Number(purchase.installment_amount || 0),
+        )
+      }
+    }
+
+    return totalsByCard
+  }, [nextStatementMonth, nextStatementYear, purchases, statementTransactions])
 
   const openNewDialog = () => {
     setEditingCard(null)
@@ -296,6 +389,34 @@ export function CreditCardManagement() {
           )}
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {(cards || []).filter((card) => card.is_active).map((card) => (
+          <Card key={`statement-${card.id}`}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm text-muted-foreground">
+                  Próximo pago
+                </CardTitle>
+                <CardBrandMark brand={card.brand} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium">{card.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {String(nextStatementMonth).padStart(2, "0")}/{nextStatementYear}
+                  </p>
+                </div>
+                <p className="text-xl font-bold font-mono">
+                  {formatCurrency(nextStatementTotals.get(card.id) || 0, card.currency)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
       <Card>
         <CardHeader>

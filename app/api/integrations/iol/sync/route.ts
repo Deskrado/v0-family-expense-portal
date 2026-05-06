@@ -6,6 +6,7 @@ import { decryptJson, encryptJson } from "@/lib/integrations/crypto"
 import {
   fetchIolReadOnlyData,
   IolSecret,
+  loginToIol,
   parseIolPositions,
   refreshIolToken,
 } from "@/lib/integrations/providers/iol"
@@ -14,6 +15,74 @@ async function getCurrencyId(admin: ReturnType<typeof createAdminClient>, code: 
   const normalized = code.toUpperCase() === "US$" ? "USD" : code.toUpperCase()
   const { data } = await admin.from("currencies").select("id").eq("code", normalized).maybeSingle()
   return data?.id || null
+}
+
+function getAccessTokenExpiresAt(expiresIn: number | undefined) {
+  return new Date(Date.now() + Number(expiresIn || 900) * 1000).toISOString()
+}
+
+async function persistIolSecret(input: {
+  admin: ReturnType<typeof createAdminClient>
+  secretId: string
+  connectionId: string
+  currentSecret: IolSecret
+  token: Pick<IolSecret, "access_token" | "refresh_token" | "token_type" | "expires_in">
+}) {
+  const nextSecret: IolSecret = {
+    ...input.currentSecret,
+    ...input.token,
+    obtained_at: new Date().toISOString(),
+    base_url: input.currentSecret.base_url,
+  }
+
+  await input.admin.from("integration_secrets").update(encryptJson(nextSecret)).eq("id", input.secretId)
+  await input.admin
+    .from("broker_connections")
+    .update({
+      access_token_expires_at: getAccessTokenExpiresAt(input.token.expires_in),
+      status: "active",
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.connectionId)
+
+  return nextSecret
+}
+
+async function refreshOrLoginIol(input: {
+  admin: ReturnType<typeof createAdminClient>
+  secretId: string
+  connectionId: string
+  secret: IolSecret
+}) {
+  try {
+    const refreshed = await refreshIolToken({
+      refreshToken: input.secret.refresh_token,
+      baseUrl: input.secret.base_url,
+    })
+    return persistIolSecret({
+      admin: input.admin,
+      secretId: input.secretId,
+      connectionId: input.connectionId,
+      currentSecret: input.secret,
+      token: refreshed,
+    })
+  } catch (refreshError) {
+    if (!input.secret.username || !input.secret.password) throw refreshError
+
+    const token = await loginToIol({
+      username: input.secret.username,
+      password: input.secret.password,
+      baseUrl: input.secret.base_url,
+    })
+    return persistIolSecret({
+      admin: input.admin,
+      secretId: input.secretId,
+      connectionId: input.connectionId,
+      currentSecret: input.secret,
+      token,
+    })
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -47,23 +116,15 @@ export async function POST(request: NextRequest) {
 
     let secret = decryptJson<IolSecret>(connection.secret)
     const expiresAt = connection.access_token_expires_at ? new Date(connection.access_token_expires_at).getTime() : 0
-    if (expiresAt && expiresAt - Date.now() < 2 * 60_000) {
+    const shouldRefreshBeforeSync = syncMode === "manual" || !expiresAt || expiresAt - Date.now() < 2 * 60_000
+    if (shouldRefreshBeforeSync) {
       try {
-        const refreshed = await refreshIolToken({
-          refreshToken: secret.refresh_token,
-          baseUrl: secret.base_url,
+        secret = await refreshOrLoginIol({
+          admin,
+          secretId: connection.secret.id,
+          connectionId: connection.id,
+          secret,
         })
-        secret = { ...refreshed, obtained_at: new Date().toISOString(), base_url: secret.base_url }
-        const encrypted = encryptJson(secret)
-        await admin.from("integration_secrets").update(encrypted).eq("id", connection.secret.id)
-        await admin
-          .from("broker_connections")
-          .update({
-            access_token_expires_at: new Date(Date.now() + Number(refreshed.expires_in || 900) * 1000).toISOString(),
-            status: "active",
-            last_error: null,
-          })
-          .eq("id", connection.id)
       } catch (refreshError) {
         const refreshMessage = refreshError instanceof Error ? refreshError.message : "IOL rechazó el refresh token"
         const accessTokenStillUsable = expiresAt - Date.now() > 30_000
@@ -110,7 +171,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const raw = await fetchIolReadOnlyData(secret.base_url, secret.access_token)
+    let raw = await fetchIolReadOnlyData(secret.base_url, secret.access_token)
+    const hasUnauthorizedRead = Object.values(raw).some(
+      (value) => typeof value === "string" && value.includes("respondio 401"),
+    )
+    if (hasUnauthorizedRead) {
+      secret = await refreshOrLoginIol({
+        admin,
+        secretId: connection.secret.id,
+        connectionId: connection.id,
+        secret,
+      })
+      raw = await fetchIolReadOnlyData(secret.base_url, secret.access_token)
+    }
     const rawHash = createHash("sha256").update(JSON.stringify(raw)).digest("hex")
     const positions = parseIolPositions(raw)
     const arsCurrencyId = await getCurrencyId(admin, "ARS")

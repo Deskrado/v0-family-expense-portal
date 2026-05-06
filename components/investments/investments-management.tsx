@@ -112,8 +112,6 @@ type PortfolioRow = {
   savingsGoal?: SavingsGoal
 }
 
-const IOL_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000
-
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-"
   return new Date(value).toLocaleString("es-AR", {
@@ -151,14 +149,8 @@ async function postJson(path: string, body?: Record<string, unknown>) {
   return payload
 }
 
-function shouldAutoSyncConnection(connection: BrokerConnection) {
-  if (connection.status !== "active") return false
-  if (!connection.last_sync_at) return true
-
-  const lastSync = new Date(connection.last_sync_at).getTime()
-  if (!Number.isFinite(lastSync)) return true
-
-  return Date.now() - lastSync > IOL_AUTO_SYNC_INTERVAL_MS
+function shouldAutoSyncConnection(_connection: BrokerConnection) {
+  return false
 }
 
 function getLatestFxRate(quotes: FxQuote[] | undefined, fromCode: string, toCode: string) {
@@ -471,6 +463,44 @@ export function InvestmentsManagement() {
     refreshMarketData()
   }, [connections])
 
+  const syncIol = async () => {
+    const activeIolConnections = (connections || []).filter(
+      (connection) => connection.status === "active" && connection.provider?.code === "iol",
+    )
+    if (activeIolConnections.length === 0) {
+      setSyncNotice("No hay una conexión IOL activa para actualizar. Revisá Configuración > Integraciones.")
+      return
+    }
+
+    setAutoRefreshing(true)
+    setError(null)
+    setSyncNotice(null)
+    try {
+      const results = await Promise.allSettled([
+        postJson("/api/market/fx/sync"),
+        ...activeIolConnections.map((connection) =>
+          postJson("/api/integrations/iol/sync", { connectionId: connection.id, mode: "manual" }),
+        ),
+      ])
+      const rejected = results.find((result) => result.status === "rejected")
+      if (rejected?.status === "rejected") throw rejected.reason
+
+      mutate("fx-quotes")
+      mutate("broker-connections")
+      mutate("broker-positions")
+      mutate("portfolio-snapshots")
+      setSyncNotice("IOL actualizado correctamente.")
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.code === "IOL_REAUTH_REQUIRED") {
+        setSyncNotice("IOL requiere reconectar la cuenta desde Configuración > Integraciones.")
+      } else {
+        setError(err instanceof Error ? err.message : "Error al actualizar IOL")
+      }
+    } finally {
+      setAutoRefreshing(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-3">
@@ -503,7 +533,13 @@ export function InvestmentsManagement() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Conectado</CardTitle>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-sm text-muted-foreground">Conectado</CardTitle>
+              <Button variant="ghost" size="sm" onClick={syncIol} disabled={autoRefreshing}>
+                {autoRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                Actualizar IOL
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="text-2xl font-bold font-mono">
             {formatCurrency(connectedTotal || Number(latestSnapshot?.total_value || 0), defaultCurrency)}
