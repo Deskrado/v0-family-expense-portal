@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import type { Transaction } from "@/lib/types"
 import { formatCurrency } from "@/lib/currency"
@@ -21,6 +21,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { CheckCircle2, MoreHorizontal, Pencil, Trash2, Search, Plus, Loader2, XCircle } from "lucide-react"
 import Link from "next/link"
@@ -38,6 +45,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 
 interface TransactionListProps {
   transactions: Transaction[]
@@ -47,14 +63,75 @@ interface TransactionListProps {
 
 export function TransactionList({ transactions, type, isLoading }: TransactionListProps) {
   const [searchQuery, setSearchQuery] = useState("")
+  const [recurrenceFilter, setRecurrenceFilter] = useState("all")
+  const [paymentFilter, setPaymentFilter] = useState("all")
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [approvalTransaction, setApprovalTransaction] = useState<Transaction | null>(null)
+  const [approvalAmount, setApprovalAmount] = useState("")
 
-  const filteredTransactions = transactions.filter((t) =>
-    t.description.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const paymentMethodLabels: Record<string, string> = {
+    cash: "Efectivo",
+    debit: "Débito",
+    credit: "Crédito",
+    transfer: "Transferencia",
+  }
+
+  const getCreditCardLabel = (transaction: Transaction) => {
+    if (!transaction.credit_card) return "Tarjeta sin identificar"
+    const lastFour = transaction.credit_card.last_four ? ` **** ${transaction.credit_card.last_four}` : ""
+    return `${transaction.credit_card.name}${lastFour}`
+  }
+
+  const paymentOptions = useMemo(() => {
+    const options = new Map<string, string>()
+
+    for (const transaction of transactions) {
+      if (transaction.type !== "expense") continue
+
+      if (!transaction.payment_method) {
+        options.set("none", "Sin método")
+        continue
+      }
+
+      if (transaction.payment_method === "credit") {
+        options.set("method:credit", "Crédito (todas)")
+        options.set(`card:${transaction.credit_card_id || "unknown"}`, getCreditCardLabel(transaction))
+        continue
+      }
+
+      options.set(`method:${transaction.payment_method}`, paymentMethodLabels[transaction.payment_method] || transaction.payment_method)
+    }
+
+    return Array.from(options.entries()).sort(([, a], [, b]) => a.localeCompare(b))
+  }, [transactions])
+
+  const filteredTransactions = transactions.filter((transaction) => {
+    const query = searchQuery.trim().toLowerCase()
+    const matchesSearch = !query || [
+      transaction.description,
+      transaction.category?.name || "",
+      transaction.group?.name || "",
+      transaction.credit_card ? getCreditCardLabel(transaction) : "",
+    ].some((value) => value.toLowerCase().includes(query))
+
+    const matchesRecurrence =
+      recurrenceFilter === "all" ||
+      (recurrenceFilter === "recurring" && transaction.is_recurring) ||
+      (recurrenceFilter === "normal" && !transaction.is_recurring)
+
+    const matchesPayment =
+      paymentFilter === "all" ||
+      (paymentFilter === "none" && !transaction.payment_method) ||
+      (paymentFilter.startsWith("method:") && transaction.payment_method === paymentFilter.replace("method:", "")) ||
+      (paymentFilter.startsWith("card:") &&
+        transaction.payment_method === "credit" &&
+        (transaction.credit_card_id || "unknown") === paymentFilter.replace("card:", ""))
+
+    return matchesSearch && matchesRecurrence && matchesPayment
+  })
 
   const handleDelete = async () => {
     if (!deleteId) return
@@ -79,16 +156,38 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
     }
   }
 
-  const updateStatus = async (transaction: Transaction, status: "approved" | "rejected") => {
+  const requestApproval = (transaction: Transaction) => {
+    if (transaction.type === "expense" && transaction.is_recurring) {
+      setApprovalTransaction(transaction)
+      setApprovalAmount(String(transaction.amount))
+      setError(null)
+      return
+    }
+
+    updateStatus(transaction, "approved")
+  }
+
+  const confirmRecurringApproval = () => {
+    if (!approvalTransaction) return
+    const parsedAmount = Number(approvalAmount)
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError("Ingresá un monto válido para aprobar el gasto")
+      return
+    }
+
+    updateStatus(approvalTransaction, "approved", parsedAmount)
+  }
+
+  const updateStatus = async (transaction: Transaction, status: "approved" | "rejected", approvedAmount?: number) => {
     setActionId(`${status}-${transaction.id}`)
     setError(null)
 
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("No estas autenticado")
+      if (!user) throw new Error("No estás autenticado")
 
-      const payload = status === "approved"
+      const payload: Record<string, unknown> = status === "approved"
         ? {
             status,
             approved_at: new Date().toISOString(),
@@ -99,6 +198,22 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
             archived_at: new Date().toISOString(),
           }
 
+      if (status === "approved" && typeof approvedAmount === "number") {
+        const originalAmount = Number(transaction.amount)
+        payload.amount = approvedAmount
+
+        if (Math.abs(approvedAmount - originalAmount) >= 0.01) {
+          payload.metadata = {
+            ...(transaction.metadata || {}),
+            approved_amount_change: {
+              original_amount: originalAmount,
+              approved_amount: approvedAmount,
+              changed_at: new Date().toISOString(),
+            },
+          }
+        }
+      }
+
       const { error } = await supabase
         .from("transactions")
         .update(payload)
@@ -106,6 +221,10 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
 
       if (error) throw error
       mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+      if (status === "approved") {
+        setApprovalTransaction(null)
+        setApprovalAmount("")
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al actualizar el estado")
     } finally {
@@ -124,22 +243,25 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
     : type === "income"
       ? "/dashboard/ingresos"
       : "/dashboard/transacciones"
-
-  const paymentMethodLabels: Record<string, string> = {
-    cash: "Efectivo",
-    debit: "Débito",
-    credit: "Crédito",
-    transfer: "Transferencia",
-  }
+  const hasActiveFilters = Boolean(searchQuery.trim()) || recurrenceFilter !== "all" || paymentFilter !== "all"
 
   return (
     <>
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle>{title}</CardTitle>
-            <div className="flex gap-2">
-              <div className="relative flex-1 sm:w-64">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>{title}</CardTitle>
+              <Button asChild className="shrink-0 lg:hidden">
+                <Link href={newUrl}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nuevo
+                </Link>
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+              <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Buscar..."
@@ -148,7 +270,50 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                   className="pl-8"
                 />
               </div>
-              <Button asChild>
+
+              <Select value={recurrenceFilter} onValueChange={setRecurrenceFilter}>
+                <SelectTrigger className="w-full lg:w-36">
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="normal">Normales</SelectItem>
+                  <SelectItem value="recurring">Recurrentes</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {(type === "expense" || type === "all") && (
+                <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+                  <SelectTrigger className="w-full lg:w-56">
+                    <SelectValue placeholder="Medio de pago" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los medios</SelectItem>
+                    {paymentOptions.map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {hasActiveFilters && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => {
+                    setSearchQuery("")
+                    setRecurrenceFilter("all")
+                    setPaymentFilter("all")
+                  }}
+                >
+                  Limpiar
+                </Button>
+              )}
+
+              <Button asChild className="hidden shrink-0 lg:inline-flex">
                 <Link href={newUrl}>
                   <Plus className="mr-2 h-4 w-4" />
                   Nuevo
@@ -167,7 +332,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
             </div>
           ) : filteredTransactions.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {searchQuery ? "No se encontraron resultados" : `No hay ${title.toLowerCase()} registrados`}
+              {hasActiveFilters ? "No se encontraron resultados con los filtros aplicados" : `No hay ${title.toLowerCase()} registrados`}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -255,7 +420,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                               {status === "pending" && (
                                 <>
                                   <DropdownMenuItem
-                                    onClick={() => updateStatus(transaction, "approved")}
+                                    onClick={() => requestApproval(transaction)}
                                     disabled={actionId === `approved-${transaction.id}`}
                                   >
                                     {actionId === `approved-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
@@ -296,6 +461,77 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={!!approvalTransaction}
+        onOpenChange={(open) => {
+          if (!open && !actionId) {
+            setApprovalTransaction(null)
+            setApprovalAmount("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Aprobar gasto recurrente</DialogTitle>
+            <DialogDescription>
+              Confirmá si el importe se mantiene o cargá el valor real de este mes. El cambio se guarda solo en esta ocurrencia.
+            </DialogDescription>
+          </DialogHeader>
+
+          {approvalTransaction && (
+            <div className="space-y-4">
+              <div className="rounded-md bg-muted p-3 text-sm">
+                <p className="font-medium">{approvalTransaction.description}</p>
+                <p className="text-muted-foreground">
+                  Previsto: {formatCurrency(Number(approvalTransaction.amount), approvalTransaction.currency || null)}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="approval_amount">Monto real aprobado</Label>
+                <Input
+                  id="approval_amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={approvalAmount}
+                  onChange={(event) => setApprovalAmount(event.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!!actionId}
+              onClick={() => {
+                setApprovalTransaction(null)
+                setApprovalAmount("")
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmRecurringApproval}
+              disabled={
+                !approvalTransaction ||
+                actionId === `approved-${approvalTransaction.id}` ||
+                !Number.isFinite(Number(approvalAmount)) ||
+                Number(approvalAmount) <= 0
+              }
+            >
+              {approvalTransaction && actionId === `approved-${approvalTransaction.id}` && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Aprobar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>

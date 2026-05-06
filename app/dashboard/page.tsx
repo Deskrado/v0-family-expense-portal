@@ -3,6 +3,7 @@
 import { SummaryCards } from "@/components/dashboard/summary-cards"
 import { ExpenseIncomeTable } from "@/components/dashboard/expense-income-table"
 import { AnnualProjectionChart } from "@/components/dashboard/annual-projection-chart"
+import { PaymentMethodBreakdown } from "@/components/dashboard/payment-method-breakdown"
 import { SavingsOverview } from "@/components/dashboard/savings-overview"
 import {
   useBrokerPositions,
@@ -174,6 +175,8 @@ export default function DashboardPage() {
         currency={currency}
         wealth={wealthBreakdown}
       />
+
+      <PaymentMethodBreakdown transactions={monthlyTransactions || []} currency={currency} />
 
       {/* Expense/Income Tables */}
       <div className="grid gap-6 lg:grid-cols-2">

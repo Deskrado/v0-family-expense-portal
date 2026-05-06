@@ -122,7 +122,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
   const amount = Number(watch("amount")) || 0
   const selectedCreditCard = creditCards?.find((card) => card.id === selectedCreditCardId)
   const installmentAmount = isInstallmentPurchase ? amount / totalInstallments : amount
-  const shouldShowCardRecurrence = type === "expense" && paymentMethod === "credit" && isRecurring && !isInstallmentPurchase && !initialData?.id
+  const shouldShowExpenseRecurrence = type === "expense" && isRecurring && !isInstallmentPurchase && !initialData?.id
   const showCreditCardBillingPreview = type === "expense" && paymentMethod === "credit" && selectedCreditCard && transactionDate && !initialData?.id
   const creditCardBillingDate = showCreditCardBillingPreview
     ? getCreditCardStatementDueDate(transactionDate, selectedCreditCard)
@@ -184,9 +184,8 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
         : null
       const getBillingDate = (purchaseDate: string) =>
         creditCardForSubmit ? getCreditCardStatementDueDate(purchaseDate, creditCardForSubmit) : purchaseDate
-      const shouldCreateRecurringCardDebit =
+      const shouldCreateRecurringExpense =
         type === "expense" &&
-        data.payment_method === "credit" &&
         data.is_recurring &&
         !data.is_installment_purchase &&
         !initialData?.id
@@ -195,7 +194,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
         setError("La cantidad de cuotas debe ser mayor a 1")
         return
       }
-      if (shouldCreateRecurringCardDebit && data.recurrence_end_date && data.recurrence_end_date < data.transaction_date) {
+      if (shouldCreateRecurringExpense && data.recurrence_end_date && data.recurrence_end_date < data.transaction_date) {
         setError("La fecha de fin no puede ser anterior al inicio")
         return
       }
@@ -242,12 +241,13 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
         credit_card_id: data.payment_method === "credit" && data.credit_card_id !== "__none" ? data.credit_card_id || null : null,
         budgeted_amount: budgetedAmount,
         transaction_date: billingTransactionDate,
-        status: shouldCreateRecurringCardDebit ? "pending" : "approved",
-        approved_at: shouldCreateRecurringCardDebit ? null : new Date().toISOString(),
-        approved_by: shouldCreateRecurringCardDebit ? null : user.id,
+        status: shouldCreateRecurringExpense ? "pending" : "approved",
+        approved_at: shouldCreateRecurringExpense ? null : new Date().toISOString(),
+        approved_by: shouldCreateRecurringExpense ? null : user.id,
         notes: data.notes?.trim() || null,
       }
-      const recurringSeriesId = shouldCreateRecurringCardDebit ? crypto.randomUUID() : null
+      const recurringSeriesId = shouldCreateRecurringExpense ? crypto.randomUUID() : null
+      const recurringSource = data.payment_method === "credit" ? "recurring_card_debit" : "recurring_expense"
       const creditCardBillingMetadata = isNewCreditCardExpense
         ? {
             purchase_date: data.transaction_date,
@@ -264,7 +264,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             metadata: recurringSeriesId
               ? {
                   ...creditCardBillingMetadata,
-                  source: "recurring_card_debit",
+                  source: recurringSource,
                   recurring_series_id: recurringSeriesId,
                   recurrence_end_date: data.recurrence_end_date || null,
                 }
@@ -279,7 +279,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
         
         if (updateError) throw updateError
       } else {
-        const insertPayload = shouldCreateRecurringCardDebit
+        const insertPayload = shouldCreateRecurringExpense
           ? getRecurringDates(
               data.transaction_date,
               data.recurrence_end_date || undefined,
@@ -288,10 +288,16 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
               ...transactionPayload,
               transaction_date: getBillingDate(transactionDate),
               metadata: {
-                purchase_date: transactionDate,
-                billing_date: getBillingDate(transactionDate),
-                billing_rule: "credit_card_statement_due",
-                source: "recurring_card_debit",
+                ...(data.payment_method === "credit"
+                  ? {
+                      purchase_date: transactionDate,
+                      billing_date: getBillingDate(transactionDate),
+                      billing_rule: "credit_card_statement_due",
+                    }
+                  : {
+                      scheduled_date: transactionDate,
+                    }),
+                source: recurringSource,
                 recurring_series_id: recurringSeriesId,
                 recurrence_index: index + 1,
                 recurrence_end_date: data.recurrence_end_date || null,
@@ -575,7 +581,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             </Label>
           </div>
 
-          {shouldShowCardRecurrence && (
+          {shouldShowExpenseRecurrence && (
             <div className="rounded-md border p-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -583,9 +589,13 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
                   <Input id="recurrence_end_date" type="date" {...register("recurrence_end_date")} />
                 </div>
                 <div className="rounded-md bg-muted p-3">
-                  <p className="text-sm text-muted-foreground">Débito automático</p>
+                  <p className="text-sm text-muted-foreground">
+                    {paymentMethod === "credit" ? "Débito automático en tarjeta" : "Gasto mensual pendiente"}
+                  </p>
                   <p className="text-sm">
-                    Se crearán movimientos mensuales en la tarjeta. Si no indicás fin, se generarán los próximos {settings?.dashboard_months_ahead || 6} meses.
+                    {paymentMethod === "credit"
+                      ? `Se crearán movimientos mensuales en la tarjeta y se computarán según el vencimiento del resumen. Si no indicás fin, se generarán los próximos ${settings?.dashboard_months_ahead || 6} meses.`
+                      : `Se crearán movimientos mensuales pendientes de aprobación. Si no indicás fin, se generarán los próximos ${settings?.dashboard_months_ahead || 6} meses.`}
                   </p>
                 </div>
               </div>

@@ -441,6 +441,7 @@ export function CreditCardManagement() {
                     <TableHead>Cuotas</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Cuota</TableHead>
+                    <TableHead className="w-10"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -460,6 +461,23 @@ export function CreditCardManagement() {
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {formatCurrency(Number(purchase.installment_amount), purchase.credit_card?.currency)}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/tarjetas/compra/${purchase.id}`}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </Link>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}

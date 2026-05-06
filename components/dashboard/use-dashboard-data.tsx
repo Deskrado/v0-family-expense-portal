@@ -1,7 +1,8 @@
 "use client"
 
 import { createClient } from "@/lib/supabase/client"
-import useSWR from "swr"
+import { useEffect } from "react"
+import useSWR, { mutate } from "swr"
 import { useDashboard } from "./dashboard-context"
 import type {
   Transaction,
@@ -21,6 +22,19 @@ import type {
 } from "@/lib/types"
 
 const supabase = createClient()
+const generatedRecurringExpensePeriods = new Set<string>()
+const materializedCreditCardPurchasePeriods = new Set<string>()
+
+async function postJson(path: string, body?: Record<string, unknown>) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(payload.error || "Error al ejecutar la acción")
+  return payload as { created?: number }
+}
 
 function getPositionAccountKey(position: BrokerPosition) {
   const connection = position.account?.connection
@@ -135,9 +149,10 @@ export function useMonthlyTransactions() {
   const { selectedMonth, selectedYear } = useDashboard()
   const startDate = new Date(selectedYear, selectedMonth - 1, 1).toISOString().split("T")[0]
   const endDate = new Date(selectedYear, selectedMonth, 0).toISOString().split("T")[0]
+  const key = `transactions-${selectedYear}-${selectedMonth}`
 
-  return useSWR<Transaction[]>(
-    `transactions-${selectedYear}-${selectedMonth}`,
+  const result = useSWR<Transaction[]>(
+    key,
     async () => {
       const { data, error } = await supabase
         .from("transactions")
@@ -156,6 +171,30 @@ export function useMonthlyTransactions() {
       return data || []
     }
   )
+
+  useEffect(() => {
+    const periodKey = `${selectedYear}-${selectedMonth}`
+    if (generatedRecurringExpensePeriods.has(periodKey) && materializedCreditCardPurchasePeriods.has(periodKey)) return
+
+    generatedRecurringExpensePeriods.add(periodKey)
+    materializedCreditCardPurchasePeriods.add(periodKey)
+    Promise.all([
+      postJson("/api/recurring-expenses/generate", { year: selectedYear, month: selectedMonth }),
+      postJson("/api/credit-card-purchases/materialize", { year: selectedYear, month: selectedMonth }),
+    ])
+      .then((responses) => {
+        if (responses.some((response) => Number(response.created || 0) > 0)) {
+          mutate(key)
+          mutate("credit-card-purchases")
+        }
+      })
+      .catch(() => {
+        generatedRecurringExpensePeriods.delete(periodKey)
+        materializedCreditCardPurchasePeriods.delete(periodKey)
+      })
+  }, [key, selectedMonth, selectedYear])
+
+  return result
 }
 
 export function useYearlyTransactions() {

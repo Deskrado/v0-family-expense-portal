@@ -17,27 +17,41 @@ import {
 } from "@/components/ui/select"
 import { formatCurrency } from "@/lib/currency"
 import { CreditCardSelectLabel } from "@/components/credit-cards/card-brand"
-import { formatDateOnlyForDisplay, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
+import { formatDateOnlyForDisplay, getCreditCardInstallmentDueDate, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
+import type { CreditCardPurchase } from "@/lib/types"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { mutate } from "swr"
 
-export function CreditCardPurchaseForm() {
+type CreditCardPurchaseFormProps = {
+  initialData?: CreditCardPurchase
+}
+
+type ExistingInstallmentTransaction = {
+  id: string
+  installment_number: number | null
+  status: "pending" | "approved" | "rejected" | null
+  approved_at: string | null
+  approved_by: string | null
+}
+
+export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormProps) {
   const router = useRouter()
   const { data: cards } = useCreditCards()
   const { data: categories } = useCategories()
   const [form, setForm] = useState({
-    credit_card_id: "",
-    description: "",
-    total_amount: "",
-    total_installments: "1",
-    start_date: new Date().toISOString().split("T")[0],
-    category_id: "__none",
+    credit_card_id: initialData?.credit_card_id || "",
+    description: initialData?.description || "",
+    total_amount: initialData?.total_amount?.toString() || "",
+    total_installments: initialData?.total_installments?.toString() || "1",
+    start_date: initialData?.start_date || new Date().toISOString().split("T")[0],
+    category_id: initialData?.category_id || "__none",
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const selectedCard = cards?.find((card) => card.id === form.credit_card_id)
+  const selectedCategory = categories?.find((category) => category.id === form.category_id)
   const firstInstallmentDueDate = selectedCard && form.start_date
     ? getCreditCardStatementDueDate(form.start_date, selectedCard)
     : form.start_date
@@ -60,6 +74,10 @@ export function CreditCardPurchaseForm() {
       setError("La cantidad de cuotas debe ser mayor o igual a 1")
       return
     }
+    if (!selectedCard) {
+      setError("Selecciona una tarjeta válida")
+      return
+    }
 
     setIsSubmitting(true)
     setError(null)
@@ -67,26 +85,106 @@ export function CreditCardPurchaseForm() {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("No estas autenticado")
+      if (!user) throw new Error("No estás autenticado")
 
-      const { error: insertError } = await supabase
-        .from("credit_card_purchases")
-        .insert({
+      const totalInstallments = Number(form.total_installments)
+      const purchasePayload = {
+        user_id: user.id,
+        credit_card_id: form.credit_card_id,
+        description: form.description.trim(),
+        total_amount: Number(form.total_amount),
+        installment_amount: installmentAmount,
+        total_installments: totalInstallments,
+        current_installment: 1,
+        start_date: form.start_date,
+        category_id: form.category_id === "__none" ? null : form.category_id,
+        currency_id: selectedCard.currency_id || null,
+        is_active: true,
+      }
+
+      const purchaseResult = initialData?.id
+        ? await supabase
+            .from("credit_card_purchases")
+            .update(purchasePayload)
+            .eq("id", initialData.id)
+            .select("id")
+            .single()
+        : await supabase
+            .from("credit_card_purchases")
+            .insert(purchasePayload)
+            .select("id")
+            .single()
+
+      if (purchaseResult.error) throw purchaseResult.error
+      const purchaseId = purchaseResult.data.id
+
+      const { data: existingTransactions, error: existingTransactionsError } = await supabase
+        .from("transactions")
+        .select("id, installment_number, status, approved_at, approved_by")
+        .eq("credit_card_purchase_id", purchaseId)
+
+      if (existingTransactionsError) throw existingTransactionsError
+
+      const existingByInstallment = new Map<number, ExistingInstallmentTransaction>()
+      for (const transaction of (existingTransactions || []) as ExistingInstallmentTransaction[]) {
+        if (transaction.installment_number) {
+          existingByInstallment.set(Number(transaction.installment_number), transaction)
+        }
+      }
+
+      for (let index = 0; index < totalInstallments; index += 1) {
+        const installmentNumber = index + 1
+        const dueDate = getCreditCardInstallmentDueDate(form.start_date, selectedCard, index)
+        const existing = existingByInstallment.get(installmentNumber)
+        const transactionPayload = {
           user_id: user.id,
-          credit_card_id: form.credit_card_id,
           description: form.description.trim(),
-          total_amount: Number(form.total_amount),
-          installment_amount: installmentAmount,
-          total_installments: Number(form.total_installments),
-          current_installment: 1,
-          start_date: form.start_date,
+          amount: installmentAmount,
+          budgeted_amount: installmentAmount,
+          currency_id: selectedCard.currency_id || null,
           category_id: form.category_id === "__none" ? null : form.category_id,
-          is_active: true,
-        })
+          group_id: selectedCategory?.group_id || null,
+          transaction_date: dueDate,
+          type: "expense",
+          is_recurring: false,
+          payment_method: "credit",
+          credit_card_id: form.credit_card_id,
+          credit_card_purchase_id: purchaseId,
+          installment_number: installmentNumber,
+          status: existing?.status || "approved",
+          approved_at: existing?.approved_at || new Date().toISOString(),
+          approved_by: existing?.approved_by || user.id,
+          notes: null,
+          metadata: {
+            source: "credit_card_installment",
+            purchase_date: form.start_date,
+            billing_date: dueDate,
+            billing_rule: "credit_card_statement_due",
+            total_installments: totalInstallments,
+          },
+        }
 
-      if (insertError) throw insertError
+        const transactionResult = existing
+          ? await supabase.from("transactions").update(transactionPayload).eq("id", existing.id)
+          : await supabase.from("transactions").insert(transactionPayload)
+
+        if (transactionResult.error) throw transactionResult.error
+      }
+
+      const extraTransactionIds = ((existingTransactions || []) as ExistingInstallmentTransaction[])
+        .filter((transaction) => Number(transaction.installment_number || 0) > totalInstallments)
+        .map((transaction) => transaction.id)
+
+      if (extraTransactionIds.length > 0) {
+        const { error: deleteExtraError } = await supabase
+          .from("transactions")
+          .delete()
+          .in("id", extraTransactionIds)
+        if (deleteExtraError) throw deleteExtraError
+      }
 
       mutate("credit-card-purchases")
+      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
       router.push("/dashboard/tarjetas")
       router.refresh()
     } catch (err) {
@@ -105,7 +203,7 @@ export function CreditCardPurchaseForm() {
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
-          <CardTitle>Compra en cuotas</CardTitle>
+          <CardTitle>{initialData?.id ? "Editar compra en cuotas" : "Compra en cuotas"}</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -182,7 +280,7 @@ export function CreditCardPurchaseForm() {
         <div className="flex gap-2 pt-2">
           <Button onClick={savePurchase} disabled={isSubmitting}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Guardar compra
+            {initialData?.id ? "Guardar cambios" : "Guardar compra"}
           </Button>
           <Button variant="outline" asChild>
             <Link href="/dashboard/tarjetas">Cancelar</Link>
