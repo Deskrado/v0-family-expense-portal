@@ -313,8 +313,11 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
       }
 
       // Revalidate data
-      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
-      mutate("credit-card-purchases")
+      mutate((key) => {
+        const keyName = Array.isArray(key) ? key[0] : key
+        return typeof keyName === "string" && keyName.startsWith("transactions")
+      })
+      mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
       
       router.push(redirectUrl || "/dashboard")
       router.refresh()

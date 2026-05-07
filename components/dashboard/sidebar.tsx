@@ -17,21 +17,27 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { useFamilyVisibility } from '@/components/dashboard/use-dashboard-data'
+import { canSeeModule } from '@/lib/family-visibility'
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Transacciones', href: '/dashboard/transacciones', icon: ArrowUpDown },
-  { name: 'Tarjetas', href: '/dashboard/tarjetas', icon: CreditCard },
-  { name: 'Categorias', href: '/dashboard/categorias', icon: FolderOpen },
-  { name: 'Inversiones', href: '/dashboard/inversiones', icon: TrendingUp },
-  { name: 'Ahorros', href: '/dashboard/ahorros', icon: PiggyBank },
-  { name: 'Proyección', href: '/dashboard/proyeccion', icon: Wallet },
-  { name: 'Configuración', href: '/dashboard/configuracion', icon: Settings },
+  { module: 'dashboard', name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { module: 'transactions', name: 'Transacciones', href: '/dashboard/transacciones', icon: ArrowUpDown },
+  { module: 'credit_cards', name: 'Tarjetas', href: '/dashboard/tarjetas', icon: CreditCard },
+  { module: 'categories', name: 'Categorías', href: '/dashboard/categorias', icon: FolderOpen },
+  { module: 'investments', name: 'Inversiones', href: '/dashboard/inversiones', icon: TrendingUp },
+  { module: 'savings', name: 'Ahorros', href: '/dashboard/ahorros', icon: PiggyBank },
+  { module: 'projections', name: 'Proyección', href: '/dashboard/proyeccion', icon: Wallet },
+  { module: 'settings', name: 'Configuración', href: '/dashboard/configuracion', icon: Settings },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
+  const { data: visibility } = useFamilyVisibility()
+  const visibleNavigation = navigation.filter((item) =>
+    canSeeModule(item.module, visibility?.membership, visibility?.permissions),
+  )
 
   return (
     <aside
@@ -55,7 +61,7 @@ export function Sidebar() {
       </div>
       
       <nav className="flex-1 p-2 space-y-1">
-        {navigation.map((item) => {
+        {visibleNavigation.map((item) => {
           const isActive = pathname === item.href || 
             (item.href !== '/dashboard' && pathname.startsWith(item.href))
           

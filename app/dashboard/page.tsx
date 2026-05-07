@@ -18,6 +18,7 @@ import {
   useSavingsGoals,
   useUserSettings,
   useYearlyTransactions,
+  useFamilyVisibility,
 } from "@/components/dashboard/use-dashboard-data"
 import { useDashboard } from "@/components/dashboard/dashboard-context"
 import { Button } from "@/components/ui/button"
@@ -28,6 +29,7 @@ import { getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
 import { getRecurringProjectionForMonth } from "@/lib/recurring-projection"
 import { getCreditCardInstallmentDueDate } from "@/lib/credit-card-billing"
 import { getWealthBreakdown } from "@/lib/wealth-summary"
+import { canSeeModule } from "@/lib/family-visibility"
 
 export default function DashboardPage() {
   const { selectedMonth, selectedYear } = useDashboard()
@@ -43,9 +45,11 @@ export default function DashboardPage() {
   const { data: fxQuotes } = useFxQuotes()
   const { data: currencies } = useCurrencies()
   const { data: settings } = useUserSettings()
+  const { data: visibility } = useFamilyVisibility()
 
   const isLoading = summaryLoading || transactionsLoading || yearlyLoading || purchasesLoading
   const currency = settings?.default_currency || currencies?.find((item) => item.code === "ARS") || currencies?.[0] || null
+  const canViewInvestments = canSeeModule("investments", visibility?.membership, visibility?.permissions)
 
   // Process transactions for expense/income table
   const expensesByGroup: Record<string, GroupSummary> = {}
@@ -132,9 +136,12 @@ export default function DashboardPage() {
     monthlyData.push(monthData)
   }
 
+  const configuredInitialBalance = settings?.initial_balance || 0
+  const priorMonthsSavings = monthlyData.slice(0, selectedMonth - 1).reduce((total, item) => total + item.savings, 0)
   const previousMonthSavings = monthlyData[selectedMonth - 2]?.savings || 0
-  const yearToDateSavings = monthlyData.slice(0, selectedMonth).reduce((total, item) => total + item.savings, 0)
-  const cashBalance = (settings?.initial_balance || 0) + summary.savings
+  const yearToDateSavings = priorMonthsSavings + summary.savings
+  const monthInitialBalance = configuredInitialBalance + priorMonthsSavings
+  const cashBalance = monthInitialBalance + summary.savings
   const wealthBreakdown = getWealthBreakdown({
     cashBalance,
     investments,
@@ -165,7 +172,7 @@ export default function DashboardPage() {
 
       {/* Summary Cards */}
       <SummaryCards
-        initialBalance={settings?.initial_balance || 0}
+        initialBalance={monthInitialBalance}
         finalBalance={cashBalance}
         totalIncome={summary.totalIncome}
         totalExpenses={summary.totalExpenses}
@@ -174,6 +181,7 @@ export default function DashboardPage() {
         savings={summary.savings}
         currency={currency}
         wealth={wealthBreakdown}
+        showInvestments={canViewInvestments}
       />
 
       <PaymentMethodBreakdown transactions={monthlyTransactions || []} currency={currency} />

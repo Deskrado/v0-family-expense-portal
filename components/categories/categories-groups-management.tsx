@@ -176,8 +176,11 @@ export function CategoriesGroupsManagement() {
 
       if (result.error) throw result.error
 
-      mutate("categories")
-      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+      mutate((key) => key === "categories" || (Array.isArray(key) && key[0] === "categories"))
+      mutate((key) => {
+        const keyName = Array.isArray(key) ? key[0] : key
+        return typeof keyName === "string" && keyName.startsWith("transactions")
+      })
       setCategoryDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la categoria")
@@ -213,9 +216,12 @@ export function CategoriesGroupsManagement() {
 
       if (result.error) throw result.error
 
-      mutate("groups")
-      mutate("categories")
-      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+      mutate((key) => key === "groups" || (Array.isArray(key) && key[0] === "groups"))
+      mutate((key) => key === "categories" || (Array.isArray(key) && key[0] === "categories"))
+      mutate((key) => {
+        const keyName = Array.isArray(key) ? key[0] : key
+        return typeof keyName === "string" && keyName.startsWith("transactions")
+      })
       setGroupDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar el grupo")
@@ -232,8 +238,11 @@ export function CategoriesGroupsManagement() {
       setError(deleteError.message)
       return
     }
-    mutate("categories")
-    mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+    mutate((key) => key === "categories" || (Array.isArray(key) && key[0] === "categories"))
+    mutate((key) => {
+        const keyName = Array.isArray(key) ? key[0] : key
+        return typeof keyName === "string" && keyName.startsWith("transactions")
+      })
   }
 
   const deleteGroup = async (group: Group) => {
@@ -244,9 +253,12 @@ export function CategoriesGroupsManagement() {
       setError(deleteError.message)
       return
     }
-    mutate("groups")
-    mutate("categories")
-    mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+    mutate((key) => key === "groups" || (Array.isArray(key) && key[0] === "groups"))
+    mutate((key) => key === "categories" || (Array.isArray(key) && key[0] === "categories"))
+    mutate((key) => {
+        const keyName = Array.isArray(key) ? key[0] : key
+        return typeof keyName === "string" && keyName.startsWith("transactions")
+      })
   }
 
   const parentCandidates = (categories || []).filter(

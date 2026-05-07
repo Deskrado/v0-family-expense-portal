@@ -17,6 +17,7 @@ interface SummaryCardsProps {
   savings: number
   currency: Currency | null
   wealth?: WealthBreakdown
+  showInvestments?: boolean
 }
 
 export function SummaryCards({
@@ -29,10 +30,17 @@ export function SummaryCards({
   savings,
   currency,
   wealth,
+  showInvestments = true,
 }: SummaryCardsProps) {
   const incomeVariance = totalIncome - budgetedIncome
   const expenseVariance = totalExpenses - budgetedExpenses
   const savingsRate = totalIncome > 0 ? (savings / totalIncome) * 100 : 0
+  const consolidatedLabel = showInvestments ? "Cash + divisas + inversiones" : "Cash + divisas"
+  const consolidatedTotal = wealth
+    ? showInvestments
+      ? wealth.total
+      : wealth.cash + wealth.foreignCurrencies
+    : 0
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -120,24 +128,29 @@ export function SummaryCards({
             <Wallet className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+            <div className={cn(
+              "grid gap-4",
+              showInvestments ? "md:grid-cols-[1.4fr_1fr_1fr_1fr]" : "md:grid-cols-[1.4fr_1fr_1fr]",
+            )}>
               <div>
-                <p className="text-xs text-muted-foreground">Cash + divisas + inversiones</p>
+                <p className="text-xs text-muted-foreground">{consolidatedLabel}</p>
                 <p className={cn(
                   "mt-1 text-3xl font-bold font-mono",
-                  wealth.total >= 0 ? "text-success" : "text-destructive"
+                  consolidatedTotal >= 0 ? "text-success" : "text-destructive"
                 )}>
-                  {formatCurrency(wealth.total, currency)}
+                  {formatCurrency(consolidatedTotal, currency)}
                 </p>
               </div>
               <div className="rounded-md bg-muted p-3">
                 <p className="text-xs text-muted-foreground">Cash</p>
                 <p className="mt-1 font-semibold font-mono">{formatCurrency(wealth.cash, currency)}</p>
               </div>
-              <div className="rounded-md bg-muted p-3">
-                <p className="text-xs text-muted-foreground">Inversiones</p>
-                <p className="mt-1 font-semibold font-mono">{formatCurrency(wealth.investments, currency)}</p>
-              </div>
+              {showInvestments && (
+                <div className="rounded-md bg-muted p-3">
+                  <p className="text-xs text-muted-foreground">Inversiones</p>
+                  <p className="mt-1 font-semibold font-mono">{formatCurrency(wealth.investments, currency)}</p>
+                </div>
+              )}
               <div className="rounded-md bg-muted p-3">
                 <p className="text-xs text-muted-foreground">Divisas</p>
                 <p className="mt-1 font-semibold font-mono">{formatCurrency(wealth.foreignCurrencies, currency)}</p>

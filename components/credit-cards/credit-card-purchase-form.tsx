@@ -183,7 +183,7 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
         if (deleteExtraError) throw deleteExtraError
       }
 
-      mutate("credit-card-purchases")
+      mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
       mutate((key) => typeof key === "string" && key.startsWith("transactions"))
       router.push("/dashboard/tarjetas")
       router.refresh()

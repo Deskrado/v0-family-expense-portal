@@ -37,9 +37,25 @@ export interface FamilyMember {
   family_id: string
   user_id: string
   role: 'owner' | 'admin' | 'member' | 'viewer'
+  email?: string | null
+  display_name?: string | null
   is_active: boolean
   joined_at: string
   family?: Family
+}
+
+export interface FamilyMemberPermissions {
+  id: string
+  family_id: string
+  family_member_id: string
+  user_id: string
+  allowed_modules: string[]
+  visible_category_ids: string[] | null
+  masked_category_amounts: Record<string, number | string>
+  show_investments: boolean
+  created_by?: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface Group {

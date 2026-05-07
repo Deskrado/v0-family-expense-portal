@@ -165,7 +165,7 @@ export function RecurringIncomeManagement() {
         : await supabase.from("recurring_income_templates").insert(payload)
 
       if (result.error) throw result.error
-      mutate("recurring-income-templates")
+      mutate((key) => key === "recurring-income-templates" || (Array.isArray(key) && key[0] === "recurring-income-templates"))
       setMessage("Ingreso recurrente guardado")
       resetForm()
     } catch (error) {
@@ -185,8 +185,11 @@ export function RecurringIncomeManagement() {
         month: selectedMonth,
         year: selectedYear,
       })
-      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
-      mutate("recurring-income-templates")
+      mutate((key) => {
+        const keyName = Array.isArray(key) ? key[0] : key
+        return typeof keyName === "string" && keyName.startsWith("transactions")
+      })
+      mutate((key) => key === "recurring-income-templates" || (Array.isArray(key) && key[0] === "recurring-income-templates"))
       setMessage(`Pendientes generados: ${result.created || 0}. Omitidos: ${result.skipped || 0}.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Error al generar pendientes")
@@ -205,7 +208,7 @@ export function RecurringIncomeManagement() {
       setMessage(error.message)
       return
     }
-    mutate("recurring-income-templates")
+    mutate((key) => key === "recurring-income-templates" || (Array.isArray(key) && key[0] === "recurring-income-templates"))
   }
 
   const removeTemplate = async (template: RecurringIncomeTemplate) => {
@@ -216,7 +219,7 @@ export function RecurringIncomeManagement() {
       setMessage(error.message)
       return
     }
-    mutate("recurring-income-templates")
+    mutate((key) => key === "recurring-income-templates" || (Array.isArray(key) && key[0] === "recurring-income-templates"))
   }
 
   return (

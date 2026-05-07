@@ -259,8 +259,8 @@ export function CreditCardManagement() {
 
       if (result.error) throw result.error
 
-      mutate("credit-cards")
-      mutate("credit-card-purchases")
+      mutate((key) => key === "credit-cards" || (Array.isArray(key) && key[0] === "credit-cards"))
+      mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la tarjeta")
@@ -280,8 +280,8 @@ export function CreditCardManagement() {
       setError(error.message)
       return
     }
-    mutate("credit-cards")
-    mutate("credit-card-purchases")
+    mutate((key) => key === "credit-cards" || (Array.isArray(key) && key[0] === "credit-cards"))
+    mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
   }
 
   return (

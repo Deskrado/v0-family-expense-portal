@@ -19,11 +19,35 @@ import type {
   FxQuote,
   SavingsGoal,
   UserSettings,
+  FamilyMember,
+  FamilyMemberPermissions,
 } from "@/lib/types"
+import {
+  applyTransactionVisibility,
+  canApplyFamilyRestrictions,
+  canSeeModule,
+  getMaskedCategoryAmount,
+} from "@/lib/family-visibility"
 
 const supabase = createClient()
 const generatedRecurringExpensePeriods = new Set<string>()
 const materializedCreditCardPurchasePeriods = new Set<string>()
+
+type FamilyVisibilityData = {
+  membership: FamilyMember | null
+  permissions: FamilyMemberPermissions | null
+}
+
+function getVisibilityScope(visibility: FamilyVisibilityData | undefined) {
+  if (!visibility) return null
+  if (!visibility.membership) return "personal"
+  return [
+    visibility.membership.family_id,
+    visibility.membership.id,
+    visibility.membership.role,
+    visibility.permissions?.updated_at || "owner",
+  ].join(":")
+}
 
 async function postJson(path: string, body?: Record<string, unknown>) {
   const response = await fetch(path, {
@@ -83,8 +107,64 @@ export function useCurrencies() {
   })
 }
 
+function useCurrentUserId() {
+  const result = useSWR<string | null>("current-user-id", async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    return user?.id || null
+  })
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      mutate("current-user-id", session?.user?.id || null, { revalidate: false })
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  return result
+}
+
+export function useFamilyVisibility() {
+  const { data: userId } = useCurrentUserId()
+
+  return useSWR<FamilyVisibilityData>(
+    userId === undefined ? null : ["family-visibility", userId],
+    async () => {
+      if (!userId) return { membership: null, permissions: null }
+
+      const { data: memberships, error: membershipsError } = await supabase
+        .from("family_members")
+        .select("*, family:families(*)")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("joined_at", { ascending: true })
+
+      if (membershipsError) throw membershipsError
+
+      const membership = ((memberships || []) as FamilyMember[])[0] || null
+      if (!membership) return { membership: null, permissions: null }
+      if (membership.role === "owner") return { membership, permissions: null }
+
+      const { data: permissions, error: permissionsError } = await supabase
+        .from("family_member_permissions")
+        .select("*")
+        .eq("family_member_id", membership.id)
+        .maybeSingle()
+
+      if (permissionsError) throw permissionsError
+
+      return {
+        membership,
+        permissions: (permissions as FamilyMemberPermissions | null) || null,
+      }
+    },
+  )
+}
+
 export function useCategories() {
-  return useSWR<Category[]>("categories", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  const result = useSWR<Category[]>(visibilityScope ? ["categories", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("categories")
       .select("*, group:groups(*)")
@@ -94,10 +174,21 @@ export function useCategories() {
     if (error) throw error
     return data || []
   })
+
+  const permissions = visibility?.permissions
+  const membership = visibility?.membership
+  const shouldFilter = canApplyFamilyRestrictions(membership, permissions) && Array.isArray(permissions?.visible_category_ids)
+  const visibleCategories = shouldFilter
+    ? (result.data || []).filter((category) => permissions?.visible_category_ids?.includes(category.id))
+    : result.data
+
+  return { ...result, data: visibleCategories }
 }
 
 export function useGroups() {
-  return useSWR<Group[]>("groups", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  return useSWR<Group[]>(visibilityScope ? ["groups", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("groups")
       .select("*")
@@ -109,7 +200,9 @@ export function useGroups() {
 }
 
 export function useCreditCards() {
-  return useSWR<CreditCard[]>("credit-cards", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  return useSWR<CreditCard[]>(visibilityScope ? ["credit-cards", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("credit_cards")
       .select("*, currency:currencies(*)")
@@ -120,10 +213,12 @@ export function useCreditCards() {
 }
 
 export function useCreditCardStatementTransactions(year: number, month: number) {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
   const endDate = new Date(year, month, 0).toISOString().split("T")[0]
 
-  return useSWR<Transaction[]>(
-    `credit-card-statement-transactions-${year}-${month}`,
+  const result = useSWR<Transaction[]>(
+    visibilityScope ? ["credit-card-statement-transactions", year, month, visibilityScope] : null,
     async () => {
       const { data, error } = await supabase
         .from("transactions")
@@ -143,13 +238,20 @@ export function useCreditCardStatementTransactions(year: number, month: number) 
       return data || []
     }
   )
+
+  return {
+    ...result,
+    data: applyTransactionVisibility(result.data, visibility?.membership, visibility?.permissions),
+  }
 }
 
 export function useMonthlyTransactions() {
   const { selectedMonth, selectedYear } = useDashboard()
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
   const startDate = new Date(selectedYear, selectedMonth - 1, 1).toISOString().split("T")[0]
   const endDate = new Date(selectedYear, selectedMonth, 0).toISOString().split("T")[0]
-  const key = `transactions-${selectedYear}-${selectedMonth}`
+  const key = visibilityScope ? ["transactions", selectedYear, selectedMonth, visibilityScope] : null
 
   const result = useSWR<Transaction[]>(
     key,
@@ -173,6 +275,7 @@ export function useMonthlyTransactions() {
   )
 
   useEffect(() => {
+    if (!key) return
     const periodKey = `${selectedYear}-${selectedMonth}`
     if (generatedRecurringExpensePeriods.has(periodKey) && materializedCreditCardPurchasePeriods.has(periodKey)) return
 
@@ -185,24 +288,29 @@ export function useMonthlyTransactions() {
       .then((responses) => {
         if (responses.some((response) => Number(response.created || 0) > 0)) {
           mutate(key)
-          mutate("credit-card-purchases")
+          mutate((cacheKey) => Array.isArray(cacheKey) && cacheKey[0] === "credit-card-purchases")
         }
       })
       .catch(() => {
         generatedRecurringExpensePeriods.delete(periodKey)
         materializedCreditCardPurchasePeriods.delete(periodKey)
       })
-  }, [key, selectedMonth, selectedYear])
+  }, [visibilityScope, selectedMonth, selectedYear])
 
-  return result
+  return {
+    ...result,
+    data: applyTransactionVisibility(result.data, visibility?.membership, visibility?.permissions),
+  }
 }
 
 export function useYearlyTransactions() {
   const { selectedYear } = useDashboard()
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
   const endDate = `${selectedYear}-12-31`
 
-  return useSWR<Transaction[]>(
-    `transactions-year-${selectedYear}`,
+  const result = useSWR<Transaction[]>(
+    visibilityScope ? ["transactions-year", selectedYear, visibilityScope] : null,
     async () => {
       const { data, error } = await supabase
         .from("transactions")
@@ -220,10 +328,17 @@ export function useYearlyTransactions() {
       return data || []
     }
   )
+
+  return {
+    ...result,
+    data: applyTransactionVisibility(result.data, visibility?.membership, visibility?.permissions),
+  }
 }
 
 export function useCreditCardPurchases() {
-  return useSWR<CreditCardPurchase[]>("credit-card-purchases", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  const result = useSWR<CreditCardPurchase[]>(visibilityScope ? ["credit-card-purchases", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("credit_card_purchases")
       .select(`
@@ -237,10 +352,33 @@ export function useCreditCardPurchases() {
     if (error) throw error
     return data || []
   })
+
+  const membership = visibility?.membership
+  const permissions = visibility?.permissions
+  const shouldRestrict = canApplyFamilyRestrictions(membership, permissions)
+  const shouldFilter = shouldRestrict && Array.isArray(permissions?.visible_category_ids)
+  const visibleSet = new Set(permissions?.visible_category_ids || [])
+  const data = !shouldRestrict
+    ? result.data
+    : (result.data || [])
+        .filter((purchase) => !shouldFilter || !purchase.category_id || visibleSet.has(purchase.category_id))
+        .map((purchase) => {
+          const maskedAmount = getMaskedCategoryAmount(purchase.category_id, permissions)
+          if (maskedAmount === null) return purchase
+          return {
+            ...purchase,
+            installment_amount: maskedAmount,
+            total_amount: maskedAmount * Number(purchase.total_installments || 1),
+          }
+        })
+
+  return { ...result, data }
 }
 
 export function useInvestments() {
-  return useSWR<Investment[]>("investments", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  const result = useSWR<Investment[]>(visibilityScope ? ["investments", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("investments")
       .select("*, currency:currencies(*)")
@@ -248,10 +386,17 @@ export function useInvestments() {
     if (error) throw error
     return data || []
   })
+
+  return {
+    ...result,
+    data: canSeeModule("investments", visibility?.membership, visibility?.permissions) ? result.data : [],
+  }
 }
 
 export function useRecurringIncomeTemplates() {
-  return useSWR<RecurringIncomeTemplate[]>("recurring-income-templates", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  const result = useSWR<RecurringIncomeTemplate[]>(visibilityScope ? ["recurring-income-templates", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("recurring_income_templates")
       .select("*, currency:currencies(*), category:categories(*), group:groups(*)")
@@ -259,10 +404,28 @@ export function useRecurringIncomeTemplates() {
     if (error) throw error
     return data || []
   })
+
+  const membership = visibility?.membership
+  const permissions = visibility?.permissions
+  const shouldRestrict = canApplyFamilyRestrictions(membership, permissions)
+  const shouldFilter = shouldRestrict && Array.isArray(permissions?.visible_category_ids)
+  const visibleSet = new Set(permissions?.visible_category_ids || [])
+  const data = !shouldRestrict
+    ? result.data
+    : (result.data || [])
+        .filter((template) => !shouldFilter || !template.category_id || visibleSet.has(template.category_id))
+        .map((template) => {
+          const maskedAmount = getMaskedCategoryAmount(template.category_id, permissions)
+          return maskedAmount === null ? template : { ...template, amount: maskedAmount }
+        })
+
+  return { ...result, data }
 }
 
 export function useBrokerConnections() {
-  return useSWR<BrokerConnection[]>("broker-connections", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  return useSWR<BrokerConnection[]>(visibilityScope ? ["broker-connections", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("broker_connections")
       .select("*, provider:external_providers(*)")
@@ -273,7 +436,9 @@ export function useBrokerConnections() {
 }
 
 export function useBrokerPositions() {
-  return useSWR<BrokerPosition[]>("broker-positions", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  const result = useSWR<BrokerPosition[]>(visibilityScope ? ["broker-positions", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("broker_positions")
       .select(`
@@ -286,10 +451,17 @@ export function useBrokerPositions() {
     if (error) throw error
     return dedupeBrokerPositions(data || [])
   })
+
+  return {
+    ...result,
+    data: canSeeModule("investments", visibility?.membership, visibility?.permissions) ? result.data : [],
+  }
 }
 
 export function usePortfolioSnapshots() {
-  return useSWR<PortfolioSnapshot[]>("portfolio-snapshots", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  const result = useSWR<PortfolioSnapshot[]>(visibilityScope ? ["portfolio-snapshots", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("portfolio_snapshots")
       .select("*, account:broker_accounts(*), currency:currencies(*)")
@@ -298,6 +470,11 @@ export function usePortfolioSnapshots() {
     if (error) throw error
     return data || []
   })
+
+  return {
+    ...result,
+    data: canSeeModule("investments", visibility?.membership, visibility?.permissions) ? result.data : [],
+  }
 }
 
 export function useFxQuotes() {
@@ -317,7 +494,9 @@ export function useFxQuotes() {
 }
 
 export function useSavingsGoals() {
-  return useSWR<SavingsGoal[]>("savings-goals", async () => {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  return useSWR<SavingsGoal[]>(visibilityScope ? ["savings-goals", visibilityScope] : null, async () => {
     const { data, error } = await supabase
       .from("savings_goals")
       .select("*, currency:currencies(*)")
@@ -328,13 +507,15 @@ export function useSavingsGoals() {
 }
 
 export function useUserSettings() {
-  return useSWR<UserSettings | null>("user-settings", async () => {
-    const { data, error } = await supabase
-      .from("user_settings")
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  return useSWR<UserSettings | null>(visibilityScope ? ["user-settings", visibilityScope] : null, async () => {
+    const { data, error } = await (supabase as any)
+      .rpc("effective_user_settings")
       .select("*, default_currency:currencies(*)")
       .maybeSingle()
     if (error) throw error
-    return data || null
+    return (data as UserSettings | null) || null
   })
 }
 

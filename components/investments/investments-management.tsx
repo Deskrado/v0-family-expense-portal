@@ -377,7 +377,7 @@ export function InvestmentsManagement() {
         : await supabase.from("investments").insert(payload)
 
       if (result.error) throw result.error
-      mutate("investments")
+      mutate((key) => key === "investments" || (Array.isArray(key) && key[0] === "investments"))
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la inversion")
@@ -397,7 +397,7 @@ export function InvestmentsManagement() {
       setError(updateError.message)
       return
     }
-    mutate("investments")
+    mutate((key) => key === "investments" || (Array.isArray(key) && key[0] === "investments"))
   }
 
   const syncFx = async () => {
@@ -450,9 +450,9 @@ export function InvestmentsManagement() {
           setError(otherError.reason instanceof Error ? otherError.reason.message : "No se pudo actualizar una cotizacion")
         }
         mutate("fx-quotes")
-        mutate("broker-connections")
-        mutate("broker-positions")
-        mutate("portfolio-snapshots")
+        mutate((key) => key === "broker-connections" || (Array.isArray(key) && key[0] === "broker-connections"))
+        mutate((key) => key === "broker-positions" || (Array.isArray(key) && key[0] === "broker-positions"))
+        mutate((key) => key === "portfolio-snapshots" || (Array.isArray(key) && key[0] === "portfolio-snapshots"))
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al actualizar cotizaciones")
       } finally {
@@ -486,9 +486,9 @@ export function InvestmentsManagement() {
       if (rejected?.status === "rejected") throw rejected.reason
 
       mutate("fx-quotes")
-      mutate("broker-connections")
-      mutate("broker-positions")
-      mutate("portfolio-snapshots")
+      mutate((key) => key === "broker-connections" || (Array.isArray(key) && key[0] === "broker-connections"))
+      mutate((key) => key === "broker-positions" || (Array.isArray(key) && key[0] === "broker-positions"))
+      mutate((key) => key === "portfolio-snapshots" || (Array.isArray(key) && key[0] === "portfolio-snapshots"))
       setSyncNotice("IOL actualizado correctamente.")
     } catch (err) {
       if (err instanceof ApiRequestError && err.code === "IOL_REAUTH_REQUIRED") {

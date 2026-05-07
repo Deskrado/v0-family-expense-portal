@@ -99,7 +99,9 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
   const isSettings = variant === "settings"
 
   const refreshBrokerData = () => {
-    brokerKeys.forEach((key) => mutate(key))
+    brokerKeys.forEach((brokerKey) => {
+      mutate((key) => key === brokerKey || (Array.isArray(key) && key[0] === brokerKey))
+    })
   }
 
   const connectIol = async (connection?: BrokerConnection) => {

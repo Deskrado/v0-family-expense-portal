@@ -108,30 +108,40 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
     return Array.from(options.entries()).sort(([, a], [, b]) => a.localeCompare(b))
   }, [transactions])
 
-  const filteredTransactions = transactions.filter((transaction) => {
-    const query = searchQuery.trim().toLowerCase()
-    const matchesSearch = !query || [
-      transaction.description,
-      transaction.category?.name || "",
-      transaction.group?.name || "",
-      transaction.credit_card ? getCreditCardLabel(transaction) : "",
-    ].some((value) => value.toLowerCase().includes(query))
+  const filteredTransactions = transactions
+    .filter((transaction) => {
+      const query = searchQuery.trim().toLowerCase()
+      const matchesSearch = !query || [
+        transaction.description,
+        transaction.category?.name || "",
+        transaction.group?.name || "",
+        transaction.credit_card ? getCreditCardLabel(transaction) : "",
+      ].some((value) => value.toLowerCase().includes(query))
 
-    const matchesRecurrence =
-      recurrenceFilter === "all" ||
-      (recurrenceFilter === "recurring" && transaction.is_recurring) ||
-      (recurrenceFilter === "normal" && !transaction.is_recurring)
+      const matchesRecurrence =
+        recurrenceFilter === "all" ||
+        (recurrenceFilter === "recurring" && transaction.is_recurring) ||
+        (recurrenceFilter === "normal" && !transaction.is_recurring)
 
-    const matchesPayment =
-      paymentFilter === "all" ||
-      (paymentFilter === "none" && !transaction.payment_method) ||
-      (paymentFilter.startsWith("method:") && transaction.payment_method === paymentFilter.replace("method:", "")) ||
-      (paymentFilter.startsWith("card:") &&
-        transaction.payment_method === "credit" &&
-        (transaction.credit_card_id || "unknown") === paymentFilter.replace("card:", ""))
+      const matchesPayment =
+        paymentFilter === "all" ||
+        (paymentFilter === "none" && !transaction.payment_method) ||
+        (paymentFilter.startsWith("method:") && transaction.payment_method === paymentFilter.replace("method:", "")) ||
+        (paymentFilter.startsWith("card:") &&
+          transaction.payment_method === "credit" &&
+          (transaction.credit_card_id || "unknown") === paymentFilter.replace("card:", ""))
 
-    return matchesSearch && matchesRecurrence && matchesPayment
-  })
+      return matchesSearch && matchesRecurrence && matchesPayment
+    })
+    .sort((left, right) => {
+      const rightCreatedAt = new Date(right.created_at || right.transaction_date).getTime()
+      const leftCreatedAt = new Date(left.created_at || left.transaction_date).getTime()
+      if (rightCreatedAt !== leftCreatedAt) return rightCreatedAt - leftCreatedAt
+
+      const rightDate = new Date(right.transaction_date).getTime()
+      const leftDate = new Date(left.transaction_date).getTime()
+      return rightDate - leftDate
+    })
 
   const handleDelete = async () => {
     if (!deleteId) return
@@ -147,7 +157,10 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
 
       if (error) throw error
 
-      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+      mutate((key) => {
+        const keyName = Array.isArray(key) ? key[0] : key
+        return typeof keyName === "string" && keyName.startsWith("transactions")
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al eliminar la transaccion")
     } finally {
@@ -220,7 +233,10 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
         .eq("id", transaction.id)
 
       if (error) throw error
-      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+      mutate((key) => {
+        const keyName = Array.isArray(key) ? key[0] : key
+        return typeof keyName === "string" && keyName.startsWith("transactions")
+      })
       if (status === "approved") {
         setApprovalTransaction(null)
         setApprovalAmount("")

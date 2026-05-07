@@ -176,7 +176,7 @@ export function SavingsManagement() {
         : await supabase.from("savings_goals").insert(payload)
 
       if (result.error) throw result.error
-      mutate("savings-goals")
+      mutate((key) => key === "savings-goals" || (Array.isArray(key) && key[0] === "savings-goals"))
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la meta")
@@ -193,7 +193,7 @@ export function SavingsManagement() {
       setError(deleteError.message)
       return
     }
-    mutate("savings-goals")
+    mutate((key) => key === "savings-goals" || (Array.isArray(key) && key[0] === "savings-goals"))
   }
 
   const globalProgress = totals.target > 0 ? Math.min((totals.current / totals.target) * 100, 100) : 0

@@ -11,7 +11,6 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
@@ -87,15 +86,9 @@ export default function LoginPage() {
                     {isLoading ? 'Iniciando...' : 'Iniciar Sesion'}
                   </Button>
                 </div>
-                <div className="mt-4 text-center text-sm">
-                  No tienes cuenta?{' '}
-                  <Link
-                    href="/auth/sign-up"
-                    className="underline underline-offset-4 hover:text-primary"
-                  >
-                    Registrate
-                  </Link>
-                </div>
+                <p className="mt-4 text-center text-sm text-muted-foreground">
+                  Las cuentas familiares se crean desde Configuración por un administrador del hogar.
+                </p>
               </form>
             </CardContent>
           </Card>

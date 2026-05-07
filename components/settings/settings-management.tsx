@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
+import { useCategories, useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { PortfolioIntegrations } from "@/components/investments/portfolio-integrations"
-import type { FamilyMember, Profile } from "@/lib/types"
+import type { FamilyMember, FamilyMemberPermissions, Profile } from "@/lib/types"
+import { ALL_FAMILY_MODULE_IDS, FAMILY_MODULES } from "@/lib/family-visibility"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,7 +21,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { Loader2, Save } from "lucide-react"
+import { Loader2, Pencil, Save, Trash2, X } from "lucide-react"
 import { mutate } from "swr"
 
 type SettingsForm = {
@@ -56,6 +57,19 @@ type FamilyForm = {
   month_start_day: string
 }
 
+type PermissionsForm = {
+  allowed_modules: string[]
+  visible_category_ids: string[] | null
+  masked_category_amounts: Record<string, string>
+  show_investments: boolean
+}
+
+type MemberEditForm = {
+  display_name: string
+  email: string
+  role: "admin" | "member" | "viewer"
+}
+
 const defaultSettingsForm: SettingsForm = {
   default_currency_id: "",
   initial_balance: "0",
@@ -89,22 +103,54 @@ const defaultFamilyForm: FamilyForm = {
   month_start_day: "1",
 }
 
+const defaultPermissionsForm: PermissionsForm = {
+  allowed_modules: ALL_FAMILY_MODULE_IDS,
+  visible_category_ids: null,
+  masked_category_amounts: {},
+  show_investments: true,
+}
+
 export function SettingsManagement() {
   const supabase = useMemo(() => createClient(), [])
   const { data: settings, isLoading } = useUserSettings()
   const { data: currencies } = useCurrencies()
+  const { data: categories } = useCategories()
   const [userId, setUserId] = useState("")
   const [email, setEmail] = useState("")
   const [profile, setProfile] = useState<Profile | null>(null)
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([])
+  const [activeFamilyMembers, setActiveFamilyMembers] = useState<FamilyMember[]>([])
+  const [memberPermissions, setMemberPermissions] = useState<FamilyMemberPermissions[]>([])
   const [profileForm, setProfileForm] = useState<ProfileForm>(defaultProfileForm)
   const [settingsForm, setSettingsForm] = useState<SettingsForm>(defaultSettingsForm)
   const [familyForm, setFamilyForm] = useState<FamilyForm>(defaultFamilyForm)
+  const [inviteEmail, setInviteEmail] = useState("")
+  const [inviteFullName, setInviteFullName] = useState("")
+  const [invitePassword, setInvitePassword] = useState("")
+  const [inviteRole, setInviteRole] = useState("member")
+  const [selectedMemberId, setSelectedMemberId] = useState("")
+  const [editingMemberId, setEditingMemberId] = useState("")
+  const [memberEditForm, setMemberEditForm] = useState<MemberEditForm>({ display_name: "", email: "", role: "member" })
+  const [selectedMaskCategoryId, setSelectedMaskCategoryId] = useState("")
+  const [permissionsForm, setPermissionsForm] = useState<PermissionsForm>(defaultPermissionsForm)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
   const activeMembership = familyMembers.find((member) => member.is_active) || null
+  const activeFamilyId = activeMembership?.family_id || ""
+  const canManageFamily = activeMembership?.role === "owner" || activeMembership?.role === "admin"
+  const selectedMember = activeFamilyMembers.find((member) => member.id === selectedMemberId) || null
+  const expenseCategories = (categories || []).filter((category) => category.type === "expense")
+  const incomeCategories = (categories || []).filter((category) => category.type === "income")
+  const selectedMaskCategory = (categories || []).find((category) => category.id === selectedMaskCategoryId) || null
+  const configuredMasks = Object.entries(permissionsForm.masked_category_amounts)
+    .filter(([, value]) => value !== "")
+    .map(([categoryId, value]) => ({
+      category: (categories || []).find((category) => category.id === categoryId),
+      value,
+    }))
+    .filter((item) => item.category)
 
   useEffect(() => {
     async function loadUserContext() {
@@ -176,6 +222,57 @@ export function SettingsManagement() {
       .order("joined_at", { ascending: true })
     setFamilyMembers((data as FamilyMember[]) || [])
   }
+
+  const reloadActiveFamilyAccess = async (familyId = activeFamilyId) => {
+    if (!familyId) return
+
+    const [{ data: membersData }, { data: permissionsData }] = await Promise.all([
+      supabase
+        .from("family_members")
+        .select("*, family:families(*, default_currency:currencies(*))")
+        .eq("family_id", familyId)
+        .eq("is_active", true)
+        .order("joined_at", { ascending: true }),
+      supabase
+        .from("family_member_permissions")
+        .select("*")
+        .eq("family_id", familyId),
+    ])
+
+    const members = (membersData as FamilyMember[]) || []
+    setActiveFamilyMembers(members)
+    setMemberPermissions((permissionsData as FamilyMemberPermissions[]) || [])
+    setSelectedMemberId((current) =>
+      members.find((member) => member.id === current)?.id ||
+      members.find((member) => member.user_id !== userId)?.id ||
+      members[0]?.id ||
+      "",
+    )
+  }
+
+  useEffect(() => {
+    if (!activeFamilyId) return
+    reloadActiveFamilyAccess(activeFamilyId)
+  }, [activeFamilyId])
+
+  useEffect(() => {
+    const selectedPermissions = memberPermissions.find((permission) => permission.family_member_id === selectedMemberId)
+    if (!selectedMemberId) {
+      setPermissionsForm(defaultPermissionsForm)
+      setSelectedMaskCategoryId("")
+      return
+    }
+
+    setPermissionsForm({
+      allowed_modules: selectedPermissions?.allowed_modules || ALL_FAMILY_MODULE_IDS,
+      visible_category_ids: selectedPermissions?.visible_category_ids ?? null,
+      masked_category_amounts: Object.fromEntries(
+        Object.entries(selectedPermissions?.masked_category_amounts || {}).map(([key, value]) => [key, String(value)]),
+      ),
+      show_investments: selectedPermissions?.show_investments ?? true,
+    })
+    setSelectedMaskCategoryId("")
+  }, [memberPermissions, selectedMemberId])
 
   const saveProfile = async () => {
     setIsSubmitting(true)
@@ -249,7 +346,7 @@ export function SettingsManagement() {
         }, { onConflict: "user_id" })
 
       if (error) throw error
-      mutate("user-settings")
+      mutate((key) => key === "user-settings" || (Array.isArray(key) && key[0] === "user-settings"))
       setMessage("Preferencias guardadas")
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Error al guardar preferencias")
@@ -267,6 +364,7 @@ export function SettingsManagement() {
       if (!familyForm.name.trim()) throw new Error("El nombre del hogar es requerido")
       const monthStartDay = Number(familyForm.month_start_day)
       if (monthStartDay < 1 || monthStartDay > 28) throw new Error("El dia de inicio mensual debe estar entre 1 y 28")
+      let savedFamilyId = familyForm.id
 
       if (familyForm.id) {
         const { error } = await supabase
@@ -298,6 +396,7 @@ export function SettingsManagement() {
 
         if (error) throw error
 
+        savedFamilyId = family.id
         const { error: memberError } = await supabase
           .from("family_members")
           .insert({
@@ -311,9 +410,182 @@ export function SettingsManagement() {
       }
 
       await reloadFamilyMembers()
+      await reloadActiveFamilyAccess(savedFamilyId)
       setMessage("Hogar guardado")
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Error al guardar hogar")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const addFamilyMember = async () => {
+    setIsSubmitting(true)
+    setMessage(null)
+
+    try {
+      if (!activeFamilyId) throw new Error("Primero creá un hogar")
+      if (!canManageFamily) throw new Error("No tenés permisos para agregar miembros")
+
+      const response = await fetch("/api/family/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          familyId: activeFamilyId,
+          email: inviteEmail,
+          fullName: inviteFullName,
+          password: invitePassword,
+          role: inviteRole,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || "Error al agregar miembro")
+
+      setInviteEmail("")
+      setInviteFullName("")
+      setInvitePassword("")
+      setInviteRole("member")
+      await reloadFamilyMembers()
+      await reloadActiveFamilyAccess()
+      mutate((key) => key === "family-visibility" || (Array.isArray(key) && key[0] === "family-visibility"))
+      setMessage("Miembro agregado")
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Error al agregar miembro")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const beginEditMember = (member: FamilyMember) => {
+    if (member.role === "owner") return
+    setEditingMemberId(member.id)
+    setMemberEditForm({
+      display_name: member.display_name || "",
+      email: member.email || "",
+      role: member.role === "admin" ? "admin" : member.role === "viewer" ? "viewer" : "member",
+    })
+  }
+
+  const cancelEditMember = () => {
+    setEditingMemberId("")
+    setMemberEditForm({ display_name: "", email: "", role: "member" })
+  }
+
+  const saveFamilyMember = async (member: FamilyMember) => {
+    setIsSubmitting(true)
+    setMessage(null)
+
+    try {
+      if (!canManageFamily) throw new Error("No tenés permisos para editar miembros")
+
+      const response = await fetch("/api/family/members", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberId: member.id,
+          displayName: memberEditForm.display_name,
+          email: memberEditForm.email,
+          role: memberEditForm.role,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || "Error al editar miembro")
+
+      cancelEditMember()
+      await reloadFamilyMembers()
+      await reloadActiveFamilyAccess()
+      mutate((key) => key === "family-visibility" || (Array.isArray(key) && key[0] === "family-visibility"))
+      setMessage("Miembro actualizado")
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Error al editar miembro")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const removeFamilyMember = async (member: FamilyMember) => {
+    if (!window.confirm(`Quitar a ${member.display_name || member.email || "este miembro"} del hogar?`)) return
+    setIsSubmitting(true)
+    setMessage(null)
+
+    try {
+      if (!canManageFamily) throw new Error("No tenés permisos para quitar miembros")
+
+      const response = await fetch("/api/family/members", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId: member.id }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || "Error al quitar miembro")
+
+      if (selectedMemberId === member.id) setSelectedMemberId("")
+      if (editingMemberId === member.id) cancelEditMember()
+      await reloadFamilyMembers()
+      await reloadActiveFamilyAccess()
+      mutate((key) => key === "family-visibility" || (Array.isArray(key) && key[0] === "family-visibility"))
+      setMessage("Miembro quitado del hogar")
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Error al quitar miembro")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const toggleModule = (moduleId: string, enabled: boolean) => {
+    const nextModules = enabled
+      ? Array.from(new Set([...permissionsForm.allowed_modules, moduleId]))
+      : permissionsForm.allowed_modules.filter((item) => item !== moduleId)
+
+    setPermissionsForm({
+      ...permissionsForm,
+      allowed_modules: nextModules,
+      show_investments: moduleId === "investments" ? enabled : permissionsForm.show_investments,
+    })
+  }
+
+  const toggleCategory = (categoryId: string, enabled: boolean) => {
+    const allCategoryIds = (categories || []).map((category) => category.id)
+    const current = permissionsForm.visible_category_ids ?? allCategoryIds
+    const next = enabled
+      ? Array.from(new Set([...current, categoryId]))
+      : current.filter((id) => id !== categoryId)
+
+    setPermissionsForm({ ...permissionsForm, visible_category_ids: next })
+  }
+
+  const saveMemberPermissions = async () => {
+    setIsSubmitting(true)
+    setMessage(null)
+
+    try {
+      if (!activeFamilyId || !selectedMember) throw new Error("Seleccioná un miembro")
+      if (!canManageFamily) throw new Error("No tenés permisos para administrar miembros")
+
+      const maskedEntries = Object.entries(permissionsForm.masked_category_amounts)
+        .filter(([, value]) => value !== "" && Number.isFinite(Number(value)))
+        .map(([key, value]) => [key, Number(value)])
+
+      const { error } = await supabase
+        .from("family_member_permissions")
+        .upsert({
+          family_id: activeFamilyId,
+          family_member_id: selectedMember.id,
+          user_id: selectedMember.user_id,
+          allowed_modules: permissionsForm.allowed_modules,
+          visible_category_ids: permissionsForm.visible_category_ids,
+          masked_category_amounts: Object.fromEntries(maskedEntries),
+          show_investments: permissionsForm.show_investments && permissionsForm.allowed_modules.includes("investments"),
+          created_by: userId,
+        }, { onConflict: "family_member_id" })
+
+      if (error) throw error
+      await reloadActiveFamilyAccess()
+      mutate((key) => key === "family-visibility" || (Array.isArray(key) && key[0] === "family-visibility"))
+      mutate((key) => (typeof key === "string" && key.startsWith("transactions")) || (Array.isArray(key) && typeof key[0] === "string" && key[0].startsWith("transactions")))
+      setMessage("Permisos guardados")
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Error al guardar permisos")
     } finally {
       setIsSubmitting(false)
     }
@@ -562,24 +834,296 @@ export function SettingsManagement() {
                 <CardTitle>Miembros</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {familyMembers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Todavia no hay hogar creado.</p>
+                {activeFamilyMembers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Todavía no hay hogar creado.</p>
                 ) : (
-                  familyMembers.map((member) => (
+                  activeFamilyMembers.map((member) => (
                     <div key={member.id} className="rounded-md border p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="font-medium">{member.user_id === userId ? "Vos" : member.user_id}</p>
-                          <p className="text-xs text-muted-foreground">{member.family?.name}</p>
+                      {editingMemberId === member.id ? (
+                        <div className="space-y-3">
+                          <Input
+                            placeholder="Nombre visible"
+                            value={memberEditForm.display_name}
+                            onChange={(event) => setMemberEditForm({ ...memberEditForm, display_name: event.target.value })}
+                          />
+                          <Input
+                            placeholder="Email visible"
+                            value={memberEditForm.email}
+                            onChange={(event) => setMemberEditForm({ ...memberEditForm, email: event.target.value })}
+                          />
+                          <Select
+                            value={memberEditForm.role}
+                            onValueChange={(value) => setMemberEditForm({ ...memberEditForm, role: value as MemberEditForm["role"] })}
+                            disabled={member.user_id === userId}
+                          >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="member">Miembro</SelectItem>
+                              <SelectItem value="viewer">Solo lectura</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => saveFamilyMember(member)} disabled={isSubmitting}>
+                              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                              Guardar
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={cancelEditMember} disabled={isSubmitting}>
+                              <X className="h-4 w-4" />
+                              Cancelar
+                            </Button>
+                          </div>
                         </div>
-                        <Badge variant={member.role === "owner" ? "default" : "secondary"}>{member.role}</Badge>
-                      </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{member.user_id === userId ? "Vos" : member.display_name || member.email || member.user_id}</p>
+                            <p className="truncate text-xs text-muted-foreground">{member.email || member.family?.name}</p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Badge variant={member.role === "owner" ? "default" : "secondary"}>{member.role}</Badge>
+                            {canManageFamily && member.role !== "owner" && (
+                              <>
+                                <Button
+                                  type="button"
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  onClick={() => beginEditMember(member)}
+                                  disabled={isSubmitting}
+                                  title="Editar miembro"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  onClick={() => removeFamilyMember(member)}
+                                  disabled={isSubmitting || member.user_id === userId}
+                                  title="Quitar miembro"
+                                  className="text-destructive hover:text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))
+                )}
+
+                {canManageFamily && activeFamilyId && (
+                  <div className="space-y-3 rounded-md border p-3">
+                    <p className="text-sm font-medium">Registrar y agregar usuario</p>
+                    <Input placeholder="Nombre completo" value={inviteFullName} onChange={(event) => setInviteFullName(event.target.value)} />
+                    <Input placeholder="email@dominio.com" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} />
+                    <Input
+                      type="password"
+                      placeholder="Contraseña inicial"
+                      value={invitePassword}
+                      onChange={(event) => setInvitePassword(event.target.value)}
+                    />
+                    <Select value={inviteRole} onValueChange={setInviteRole}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="member">Miembro</SelectItem>
+                        <SelectItem value="viewer">Solo lectura</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button className="w-full" onClick={addFamilyMember} disabled={isSubmitting}>
+                      {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Agregar
+                    </Button>
+                    <p className="text-xs text-muted-foreground">Si el email ya existe, se lo asocia al hogar. Si no existe, se crea la cuenta con esta contraseña inicial.</p>
+                  </div>
                 )}
               </CardContent>
             </Card>
           </div>
+
+          {canManageFamily && selectedMember && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Vista del miembro</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+                  <div className="space-y-2">
+                    <Label>Miembro</Label>
+                    <Select value={selectedMemberId} onValueChange={setSelectedMemberId}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {activeFamilyMembers.map((member) => (
+                          <SelectItem key={member.id} value={member.id}>
+                            {member.user_id === userId ? "Vos" : member.display_name || member.email || member.user_id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+                    Estas reglas afectan la navegación, las categorías visibles y los cálculos que ve ese usuario. Si una categoría tiene máscara, sus totales se calculan con el importe visible.
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {FAMILY_MODULES.map((module) => (
+                    <label key={module.id} className="flex items-center gap-3 rounded-md border p-3">
+                      <Switch
+                        checked={permissionsForm.allowed_modules.includes(module.id)}
+                        onCheckedChange={(checked) => toggleModule(module.id, checked)}
+                      />
+                      <span className="text-sm font-medium">{module.label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <label className="flex items-center gap-3 rounded-md border p-3">
+                  <Switch
+                    checked={permissionsForm.show_investments && permissionsForm.allowed_modules.includes("investments")}
+                    onCheckedChange={(checked) => toggleModule("investments", checked)}
+                  />
+                  <span className="text-sm font-medium">Puede ver inversiones y portfolio</span>
+                </label>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">Categorías visibles</p>
+                      <p className="text-sm text-muted-foreground">Si desactivás una categoría, sus movimientos no aparecen ni entran en cálculos.</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setPermissionsForm({ ...permissionsForm, visible_category_ids: permissionsForm.visible_category_ids ? null : [] })}
+                    >
+                      {permissionsForm.visible_category_ids ? "Ver todas" : "Configurar"}
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {[
+                      { title: "Gastos", list: expenseCategories },
+                      { title: "Ingresos", list: incomeCategories },
+                    ].map(({ title, list }) => (
+                      <div key={title} className="space-y-2 rounded-md border p-3">
+                        <p className="font-medium">{title}</p>
+                        {list.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">Sin categorías.</p>
+                        ) : (
+                          list.map((category) => (
+                            <label key={category.id} className="flex items-center justify-between gap-3 rounded-md px-2 py-1">
+                              <span className="text-sm">{category.name}</span>
+                              <Switch
+                                checked={!permissionsForm.visible_category_ids || permissionsForm.visible_category_ids.includes(category.id)}
+                                onCheckedChange={(checked) => toggleCategory(category.id, checked)}
+                              />
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <p className="font-medium">Máscara de importe</p>
+                    <p className="text-sm text-muted-foreground">Buscá el gasto o ingreso que querés cubrir, seleccionalo y definí el monto que verá el miembro.</p>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_220px_auto]">
+                    <Select value={selectedMaskCategoryId} onValueChange={setSelectedMaskCategoryId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Buscar concepto..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(categories || []).map((category) => (
+                          <SelectItem key={category.id} value={category.id}>
+                            {category.name} · {category.type === "expense" ? "Gasto" : "Ingreso"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder={selectedMaskCategory ? "Monto visible" : "Seleccioná concepto"}
+                      disabled={!selectedMaskCategory}
+                      value={selectedMaskCategory ? permissionsForm.masked_category_amounts[selectedMaskCategory.id] || "" : ""}
+                      onChange={(event) => {
+                        if (!selectedMaskCategory) return
+                        setPermissionsForm({
+                          ...permissionsForm,
+                          masked_category_amounts: {
+                            ...permissionsForm.masked_category_amounts,
+                            [selectedMaskCategory.id]: event.target.value,
+                          },
+                        })
+                      }}
+                    />
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!selectedMaskCategory}
+                      onClick={() => {
+                        if (!selectedMaskCategory) return
+                        const { [selectedMaskCategory.id]: _removed, ...nextMasks } = permissionsForm.masked_category_amounts
+                        setPermissionsForm({ ...permissionsForm, masked_category_amounts: nextMasks })
+                      }}
+                    >
+                      Quitar
+                    </Button>
+                  </div>
+
+                  {selectedMaskCategory && (
+                    <div className="rounded-md bg-muted p-3 text-sm">
+                      <span className="font-medium">{selectedMaskCategory.name}</span>
+                      <span className="text-muted-foreground"> se mostrará como </span>
+                      <span className="font-mono">
+                        {permissionsForm.masked_category_amounts[selectedMaskCategory.id] || "sin máscara"}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Máscaras configuradas</p>
+                    {configuredMasks.length === 0 ? (
+                      <p className="rounded-md border p-3 text-sm text-muted-foreground">Todavía no hay conceptos enmascarados.</p>
+                    ) : (
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {configuredMasks.map(({ category, value }) => (
+                          <button
+                            key={category!.id}
+                            type="button"
+                            className="flex items-center justify-between gap-3 rounded-md border p-3 text-left hover:bg-muted"
+                            onClick={() => setSelectedMaskCategoryId(category!.id)}
+                          >
+                            <span>
+                              <span className="block text-sm font-medium">{category!.name}</span>
+                              <span className="text-xs text-muted-foreground">{category!.type === "expense" ? "Gasto" : "Ingreso"}</span>
+                            </span>
+                            <span className="font-mono text-sm">{value}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <Button onClick={saveMemberPermissions} disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Guardar vista del miembro
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="integrations">
