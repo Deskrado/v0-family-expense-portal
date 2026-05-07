@@ -128,6 +128,7 @@ export function SettingsManagement() {
   const [inviteFullName, setInviteFullName] = useState("")
   const [invitePassword, setInvitePassword] = useState("")
   const [inviteRole, setInviteRole] = useState("member")
+  const [inviteCloneFromMemberId, setInviteCloneFromMemberId] = useState("__none")
   const [selectedMemberId, setSelectedMemberId] = useState("")
   const [editingMemberId, setEditingMemberId] = useState("")
   const [memberEditForm, setMemberEditForm] = useState<MemberEditForm>({ display_name: "", email: "", role: "member" })
@@ -141,6 +142,7 @@ export function SettingsManagement() {
   const activeFamilyId = activeMembership?.family_id || ""
   const canManageFamily = activeMembership?.role === "owner" || activeMembership?.role === "admin"
   const selectedMember = activeFamilyMembers.find((member) => member.id === selectedMemberId) || null
+  const cloneableMembers = activeFamilyMembers.filter((member) => member.role !== "owner")
   const expenseCategories = (categories || []).filter((category) => category.type === "expense")
   const incomeCategories = (categories || []).filter((category) => category.type === "income")
   const selectedMaskCategory = (categories || []).find((category) => category.id === selectedMaskCategoryId) || null
@@ -436,6 +438,7 @@ export function SettingsManagement() {
           fullName: inviteFullName,
           password: invitePassword,
           role: inviteRole,
+          cloneFromMemberId: inviteCloneFromMemberId === "__none" ? undefined : inviteCloneFromMemberId,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -445,6 +448,7 @@ export function SettingsManagement() {
       setInviteFullName("")
       setInvitePassword("")
       setInviteRole("member")
+      setInviteCloneFromMemberId("__none")
       await reloadFamilyMembers()
       await reloadActiveFamilyAccess()
       mutate((key) => key === "family-visibility" || (Array.isArray(key) && key[0] === "family-visibility"))
@@ -933,10 +937,31 @@ export function SettingsManagement() {
                         <SelectItem value="viewer">Solo lectura</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Select
+                      value={inviteCloneFromMemberId}
+                      onValueChange={(value) => {
+                        setInviteCloneFromMemberId(value)
+                        const sourceMember = activeFamilyMembers.find((member) => member.id === value)
+                        if (sourceMember && sourceMember.role !== "owner") setInviteRole(sourceMember.role)
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Copiar configuración de..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">Sin copiar configuración</SelectItem>
+                        {cloneableMembers.map((member) => (
+                          <SelectItem key={member.id} value={member.id}>
+                            {member.user_id === userId ? "Vos" : member.display_name || member.email || member.user_id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button className="w-full" onClick={addFamilyMember} disabled={isSubmitting}>
                       {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Agregar
                     </Button>
+                    <p className="text-xs text-muted-foreground">Si copiás un miembro, el nuevo usuario hereda módulos, categorías visibles, máscaras e inversiones.</p>
                     <p className="text-xs text-muted-foreground">Si el email ya existe, se lo asocia al hogar. Si no existe, se crea la cuenta con esta contraseña inicial.</p>
                   </div>
                 )}

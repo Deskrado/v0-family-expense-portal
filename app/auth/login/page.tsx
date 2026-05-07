@@ -86,9 +86,6 @@ export default function LoginPage() {
                     {isLoading ? 'Iniciando...' : 'Iniciar Sesion'}
                   </Button>
                 </div>
-                <p className="mt-4 text-center text-sm text-muted-foreground">
-                  Las cuentas familiares se crean desde Configuración por un administrador del hogar.
-                </p>
               </form>
             </CardContent>
           </Card>

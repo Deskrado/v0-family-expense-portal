@@ -50,12 +50,42 @@ export async function POST(request: NextRequest) {
     const fullName = String(body.fullName || "").trim()
     const password = String(body.password || "")
     const role = normalizeRole(body.role)
+    const cloneFromMemberId = String(body.cloneFromMemberId || "")
 
     if (!familyId) return NextResponse.json({ error: "familyId requerido" }, { status: 400 })
     if (!email || !email.includes("@")) return NextResponse.json({ error: "Email inválido" }, { status: 400 })
     if (password && password.length < 6) return NextResponse.json({ error: "La contraseña debe tener al menos 6 caracteres" }, { status: 400 })
     if (!(await canManageFamily(familyId, user.id))) {
       return NextResponse.json({ error: "No tenés permisos para administrar este hogar" }, { status: 403 })
+    }
+
+    let clonedPermissions: {
+      allowed_modules: string[] | null
+      visible_category_ids: string[] | null
+      masked_category_amounts: Record<string, unknown> | null
+      show_investments: boolean | null
+    } | null = null
+
+    if (cloneFromMemberId) {
+      const { data: sourceMember, error: sourceMemberError } = await supabase
+        .from("family_members")
+        .select("id, family_id, is_active")
+        .eq("id", cloneFromMemberId)
+        .eq("family_id", familyId)
+        .eq("is_active", true)
+        .maybeSingle()
+
+      if (sourceMemberError) throw sourceMemberError
+      if (!sourceMember) return NextResponse.json({ error: "El miembro a copiar no pertenece a este hogar" }, { status: 400 })
+
+      const { data: sourcePermissions, error: sourcePermissionsError } = await supabase
+        .from("family_member_permissions")
+        .select("allowed_modules, visible_category_ids, masked_category_amounts, show_investments")
+        .eq("family_member_id", cloneFromMemberId)
+        .maybeSingle()
+
+      if (sourcePermissionsError) throw sourcePermissionsError
+      clonedPermissions = sourcePermissions || null
     }
 
     const admin = createAdminClient()
@@ -108,16 +138,20 @@ export async function POST(request: NextRequest) {
 
     if (memberError) throw memberError
 
+    const allowedModules = clonedPermissions
+      ? modulesForRole(role, clonedPermissions.allowed_modules)
+      : role === "admin" ? ALL_FAMILY_MODULE_IDS : DEFAULT_MEMBER_MODULES
+
     const { error: permissionsError } = await supabase
       .from("family_member_permissions")
       .upsert({
         family_id: familyId,
         family_member_id: member.id,
         user_id: targetUser.id,
-        allowed_modules: role === "admin" ? ALL_FAMILY_MODULE_IDS : DEFAULT_MEMBER_MODULES,
-        visible_category_ids: null,
-        masked_category_amounts: {},
-        show_investments: true,
+        allowed_modules: allowedModules,
+        visible_category_ids: clonedPermissions?.visible_category_ids ?? null,
+        masked_category_amounts: clonedPermissions?.masked_category_amounts ?? {},
+        show_investments: clonedPermissions?.show_investments ?? true,
         created_by: user.id,
       }, { onConflict: "family_member_id" })
 
