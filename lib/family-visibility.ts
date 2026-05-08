@@ -1,4 +1,4 @@
-import type { FamilyMember, FamilyMemberPermissions, Transaction } from "@/lib/types"
+import type { Category, FamilyMember, FamilyMemberPermissions, Transaction } from "@/lib/types"
 
 export const FAMILY_MODULES = [
   { id: "dashboard", label: "Dashboard" },
@@ -43,6 +43,22 @@ export function getMaskedCategoryAmount(
   return Number.isFinite(amount) ? amount : null
 }
 
+export function isCategoryVisibleForMember(
+  category: Pick<Category, "id" | "created_at"> | null | undefined,
+  permissions: FamilyMemberPermissions | null | undefined,
+) {
+  if (!category?.id) return true
+
+  const visibleCategoryIds = permissions?.visible_category_ids
+  if (!Array.isArray(visibleCategoryIds)) return true
+  if (visibleCategoryIds.includes(category.id)) return true
+
+  const permissionsUpdatedAt = permissions?.updated_at || permissions?.created_at
+  if (!category.created_at || !permissionsUpdatedAt) return false
+
+  return new Date(category.created_at).getTime() > new Date(permissionsUpdatedAt).getTime()
+}
+
 export function applyTransactionVisibility(
   transactions: Transaction[] | undefined,
   membership: FamilyMember | null | undefined,
@@ -53,14 +69,12 @@ export function applyTransactionVisibility(
 
   const visibleCategoryIds = permissions?.visible_category_ids
   const shouldFilterCategories = Array.isArray(visibleCategoryIds)
-  const visibleSet = new Set(visibleCategoryIds || [])
 
   return transactions
     .filter((transaction) => {
       if (!shouldFilterCategories) return true
       if (!transaction.category_id) return true
-      if (transaction.category?.user_id === membership?.user_id) return true
-      return visibleSet.has(transaction.category_id)
+      return isCategoryVisibleForMember(transaction.category || { id: transaction.category_id, created_at: "" }, permissions)
     })
     .map((transaction) => {
       const maskedAmount = getMaskedCategoryAmount(transaction.category_id, permissions)

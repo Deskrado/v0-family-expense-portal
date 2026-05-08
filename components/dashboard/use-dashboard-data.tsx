@@ -27,6 +27,7 @@ import {
   canApplyFamilyRestrictions,
   canSeeModule,
   getMaskedCategoryAmount,
+  isCategoryVisibleForMember,
 } from "@/lib/family-visibility"
 
 const supabase = createClient()
@@ -163,7 +164,6 @@ export function useFamilyVisibility() {
 
 export function useCategories() {
   const { data: visibility } = useFamilyVisibility()
-  const { data: userId } = useCurrentUserId()
   const visibilityScope = getVisibilityScope(visibility)
   const result = useSWR<Category[]>(visibilityScope ? ["categories", visibilityScope] : null, async () => {
     const { data, error } = await supabase
@@ -180,9 +180,7 @@ export function useCategories() {
   const membership = visibility?.membership
   const shouldFilter = canApplyFamilyRestrictions(membership, permissions) && Array.isArray(permissions?.visible_category_ids)
   const visibleCategories = shouldFilter
-    ? (result.data || []).filter((category) =>
-        permissions?.visible_category_ids?.includes(category.id) || category.user_id === userId
-      )
+    ? (result.data || []).filter((category) => isCategoryVisibleForMember(category, permissions))
     : result.data
 
   return { ...result, data: visibleCategories }
@@ -360,15 +358,13 @@ export function useCreditCardPurchases() {
   const permissions = visibility?.permissions
   const shouldRestrict = canApplyFamilyRestrictions(membership, permissions)
   const shouldFilter = shouldRestrict && Array.isArray(permissions?.visible_category_ids)
-  const visibleSet = new Set(permissions?.visible_category_ids || [])
   const data = !shouldRestrict
     ? result.data
     : (result.data || [])
         .filter((purchase) =>
           !shouldFilter ||
           !purchase.category_id ||
-          visibleSet.has(purchase.category_id) ||
-          purchase.category?.user_id === membership?.user_id
+          isCategoryVisibleForMember(purchase.category || { id: purchase.category_id, created_at: "" }, permissions)
         )
         .map((purchase) => {
           const maskedAmount = getMaskedCategoryAmount(purchase.category_id, permissions)
@@ -417,15 +413,13 @@ export function useRecurringIncomeTemplates() {
   const permissions = visibility?.permissions
   const shouldRestrict = canApplyFamilyRestrictions(membership, permissions)
   const shouldFilter = shouldRestrict && Array.isArray(permissions?.visible_category_ids)
-  const visibleSet = new Set(permissions?.visible_category_ids || [])
   const data = !shouldRestrict
     ? result.data
     : (result.data || [])
         .filter((template) =>
           !shouldFilter ||
           !template.category_id ||
-          visibleSet.has(template.category_id) ||
-          template.category?.user_id === membership?.user_id
+          isCategoryVisibleForMember(template.category || { id: template.category_id, created_at: "" }, permissions)
         )
         .map((template) => {
           const maskedAmount = getMaskedCategoryAmount(template.category_id, permissions)

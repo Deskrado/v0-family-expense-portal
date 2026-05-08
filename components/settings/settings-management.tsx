@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useCategories, useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
 import { PortfolioIntegrations } from "@/components/investments/portfolio-integrations"
 import type { FamilyMember, FamilyMemberPermissions, Profile } from "@/lib/types"
-import { ALL_FAMILY_MODULE_IDS, FAMILY_MODULES } from "@/lib/family-visibility"
+import { ALL_FAMILY_MODULE_IDS, FAMILY_MODULES, isCategoryVisibleForMember } from "@/lib/family-visibility"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -265,16 +265,22 @@ export function SettingsManagement() {
       return
     }
 
+    const visibleCategoryIds = Array.isArray(selectedPermissions?.visible_category_ids)
+      ? (categories || [])
+          .filter((category) => isCategoryVisibleForMember(category, selectedPermissions))
+          .map((category) => category.id)
+      : selectedPermissions?.visible_category_ids ?? null
+
     setPermissionsForm({
       allowed_modules: selectedPermissions?.allowed_modules || ALL_FAMILY_MODULE_IDS,
-      visible_category_ids: selectedPermissions?.visible_category_ids ?? null,
+      visible_category_ids: visibleCategoryIds,
       masked_category_amounts: Object.fromEntries(
         Object.entries(selectedPermissions?.masked_category_amounts || {}).map(([key, value]) => [key, String(value)]),
       ),
       show_investments: selectedPermissions?.show_investments ?? true,
     })
     setSelectedMaskCategoryId("")
-  }, [memberPermissions, selectedMemberId])
+  }, [categories, memberPermissions, selectedMemberId])
 
   const saveProfile = async () => {
     setIsSubmitting(true)
