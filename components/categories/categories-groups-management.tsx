@@ -49,6 +49,8 @@ type CategoryFormState = {
   icon: string
   group_id: string
   parent_id: string
+  projection_method: "none" | "historical_average"
+  projection_months: string
 }
 
 type GroupFormState = {
@@ -64,6 +66,8 @@ const emptyCategoryForm: CategoryFormState = {
   icon: "",
   group_id: "__none",
   parent_id: "__none",
+  projection_method: "none",
+  projection_months: "3",
 }
 
 const emptyGroupForm: GroupFormState = {
@@ -80,6 +84,8 @@ function categoryToForm(category: Category): CategoryFormState {
     icon: category.icon || "",
     group_id: category.group_id || "__none",
     parent_id: category.parent_id || "__none",
+    projection_method: category.projection_method || "none",
+    projection_months: category.projection_months?.toString() || "3",
   }
 }
 
@@ -171,6 +177,8 @@ export function CategoriesGroupsManagement() {
         icon: categoryForm.icon.trim() || null,
         group_id: categoryForm.group_id === "__none" ? null : categoryForm.group_id,
         parent_id: categoryForm.parent_id === "__none" ? null : categoryForm.parent_id,
+        projection_method: categoryForm.type === "expense" ? categoryForm.projection_method : "none",
+        projection_months: Math.min(Math.max(Number(categoryForm.projection_months) || 3, 1), 12),
       }
 
       const result = editingCategory
@@ -458,7 +466,15 @@ export function CategoriesGroupsManagement() {
               </div>
               <div className="space-y-2">
                 <Label>Tipo</Label>
-                <Select value={categoryForm.type} onValueChange={(value) => setCategoryForm({ ...categoryForm, type: value as "expense" | "income", parent_id: "__none" })}>
+                <Select
+                  value={categoryForm.type}
+                  onValueChange={(value) => setCategoryForm({
+                    ...categoryForm,
+                    type: value as "expense" | "income",
+                    parent_id: "__none",
+                    projection_method: value === "expense" ? categoryForm.projection_method : "none",
+                  })}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -513,6 +529,46 @@ export function CategoriesGroupsManagement() {
                 <Input id="category-icon" placeholder="Ej: casa, food, $" value={categoryForm.icon} onChange={(event) => setCategoryForm({ ...categoryForm, icon: event.target.value })} />
               </div>
             </div>
+            {categoryForm.type === "expense" && (
+              <div className="rounded-md border p-4">
+                <div className="grid gap-4 sm:grid-cols-[1fr_160px]">
+                  <div className="space-y-2">
+                    <Label>Proyección de gasto esencial</Label>
+                    <Select
+                      value={categoryForm.projection_method}
+                      onValueChange={(value) => setCategoryForm({
+                        ...categoryForm,
+                        projection_method: value as CategoryFormState["projection_method"],
+                      })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No proyectar automáticamente</SelectItem>
+                        <SelectItem value="historical_average">Estimar todos los meses por promedio</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Meses para promedio</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={categoryForm.projection_months}
+                      disabled={categoryForm.projection_method === "none"}
+                      onChange={(event) => setCategoryForm({ ...categoryForm, projection_months: event.target.value })}
+                    />
+                  </div>
+                </div>
+                {categoryForm.projection_method === "historical_average" && (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    No es una fecha de fin: se usa el promedio de los últimos meses con consumo y se repite en cada mes futuro hasta que exista un gasto real en esta categoría.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCategoryDialogOpen(false)}>Cancelar</Button>

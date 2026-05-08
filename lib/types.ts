@@ -82,6 +82,8 @@ export interface Category {
   group_id: string | null
   family_id?: string | null
   sort_order?: number
+  projection_method?: 'none' | 'historical_average'
+  projection_months?: number
   is_active?: boolean
   archived_at?: string | null
   updated_at?: string

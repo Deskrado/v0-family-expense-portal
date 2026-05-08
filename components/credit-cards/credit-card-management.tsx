@@ -43,7 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { CreditCard as CreditCardIcon, Loader2, MoreHorizontal, Pencil, Plus, Search, XCircle } from "lucide-react"
+import { CreditCard as CreditCardIcon, Loader2, MoreHorizontal, Pencil, Plus, Repeat, Search, XCircle } from "lucide-react"
 import Link from "next/link"
 import { mutate } from "swr"
 
@@ -121,6 +121,7 @@ export function CreditCardManagement() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [consumptionCardFilter, setConsumptionCardFilter] = useState("all")
 
   const visibleCards = useMemo(() => {
     const query = search.toLowerCase()
@@ -128,6 +129,10 @@ export function CreditCardManagement() {
       `${card.name} ${getCardBrandLabel(card.brand)} ${card.last_four || ""}`.toLowerCase().includes(query)
     )
   }, [cards, search])
+  const filteredPurchases = useMemo(() => {
+    if (consumptionCardFilter === "all") return purchases || []
+    return (purchases || []).filter((purchase) => purchase.credit_card_id === consumptionCardFilter)
+  }, [consumptionCardFilter, purchases])
 
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
   const nextStatementTotals = useMemo(() => {
@@ -194,6 +199,42 @@ export function CreditCardManagement() {
 
     return totalsByCard
   }, [nextStatementMonth, nextStatementYear, purchases, statementTransactions])
+  const recurringCardDebits = useMemo(() => {
+    const targetDate = `${nextStatementYear}-${String(nextStatementMonth).padStart(2, "0")}-01`
+    const latestByKey = new Map<string, Transaction>()
+
+    for (const transaction of statementTransactions || []) {
+      if (!transaction.credit_card_id || !transaction.is_recurring || transaction.status === "rejected") continue
+      if (!isTransactionBeforeOrInMonth(transaction, nextStatementYear, nextStatementMonth)) continue
+
+      const endDate = typeof transaction.metadata?.recurrence_end_date === "string" ? transaction.metadata.recurrence_end_date : null
+      if (endDate && targetDate > endDate) continue
+
+      const key = transactionStatementKey(transaction)
+      const current = latestByKey.get(key)
+      const currentIsTargetMonth = current ? isTransactionInMonth(current, nextStatementYear, nextStatementMonth) : false
+      const transactionIsTargetMonth = isTransactionInMonth(transaction, nextStatementYear, nextStatementMonth)
+
+      if (
+        !current ||
+        (transactionIsTargetMonth && !currentIsTargetMonth) ||
+        (transactionIsTargetMonth === currentIsTargetMonth && transaction.transaction_date > current.transaction_date)
+      ) {
+        latestByKey.set(key, transaction)
+      }
+    }
+
+    const rows = Array.from(latestByKey.values()).sort((a, b) =>
+      (a.credit_card?.name || "").localeCompare(b.credit_card?.name || "") ||
+      a.description.localeCompare(b.description)
+    )
+
+    if (consumptionCardFilter === "all") return rows
+    return rows.filter((transaction) => transaction.credit_card_id === consumptionCardFilter)
+  }, [consumptionCardFilter, nextStatementMonth, nextStatementYear, statementTransactions])
+  const automaticDebitHref = `/dashboard/transacciones/nuevo?type=expense&payment=credit&recurring=1&back=/dashboard/tarjetas&redirect=/dashboard/tarjetas${
+    consumptionCardFilter === "all" ? "" : `&cardId=${encodeURIComponent(consumptionCardFilter)}`
+  }`
 
   const openNewDialog = () => {
     setEditingCard(null)
@@ -304,6 +345,12 @@ export function CreditCardManagement() {
                 <Link href="/dashboard/tarjetas/compra">
                   <CreditCardIcon className="mr-2 h-4 w-4" />
                   Compra
+                </Link>
+              </Button>
+              <Button variant="outline" asChild className="w-full sm:w-auto">
+                <Link href={automaticDebitHref}>
+                  <Repeat className="mr-2 h-4 w-4" />
+                  Débito automático
                 </Link>
               </Button>
               <Button onClick={openNewDialog} className="w-full sm:w-auto">
@@ -420,15 +467,32 @@ export function CreditCardManagement() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Compras en cuotas activas</CardTitle>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>Compras en cuotas activas</CardTitle>
+            <Select value={consumptionCardFilter} onValueChange={setConsumptionCardFilter}>
+              <SelectTrigger className="w-full sm:w-72">
+                <SelectValue placeholder="Filtrar por tarjeta" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las tarjetas</SelectItem>
+                {(cards || []).map((card) => (
+                  <SelectItem key={card.id} value={card.id} textValue={`${card.name} ${card.brand || ""} ${card.last_four || ""}`}>
+                    <CreditCardSelectLabel card={card} />
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           {purchasesLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : !purchases?.length ? (
-            <div className="py-8 text-center text-muted-foreground">No hay compras en cuotas activas</div>
+          ) : filteredPurchases.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              {consumptionCardFilter === "all" ? "No hay compras en cuotas activas" : "No hay compras en cuotas para esta tarjeta"}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -445,7 +509,7 @@ export function CreditCardManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {purchases.map((purchase) => (
+                  {filteredPurchases.map((purchase) => (
                     <TableRow key={purchase.id}>
                       <TableCell className="font-medium">{purchase.description}</TableCell>
                       <TableCell>
@@ -484,6 +548,91 @@ export function CreditCardManagement() {
                 </TableBody>
               </Table>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>Débitos automáticos activos</CardTitle>
+            <Select value={consumptionCardFilter} onValueChange={setConsumptionCardFilter}>
+              <SelectTrigger className="w-full sm:w-72">
+                <SelectValue placeholder="Filtrar por tarjeta" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las tarjetas</SelectItem>
+                {(cards || []).map((card) => (
+                  <SelectItem key={card.id} value={card.id} textValue={`${card.name} ${card.brand || ""} ${card.last_four || ""}`}>
+                    <CreditCardSelectLabel card={card} />
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!statementTransactions ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : recurringCardDebits.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              {consumptionCardFilter === "all" ? "No hay débitos automáticos activos" : "No hay débitos automáticos para esta tarjeta"}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Servicio</TableHead>
+                  <TableHead>Tarjeta</TableHead>
+                  <TableHead>Categoría</TableHead>
+                  <TableHead>Próximo impacto</TableHead>
+                  <TableHead className="text-right">Monto</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="w-10"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recurringCardDebits.map((transaction) => (
+                  <TableRow key={transaction.id}>
+                    <TableCell className="font-medium">{transaction.description}</TableCell>
+                    <TableCell>
+                      {transaction.credit_card ? <CreditCardSelectLabel card={transaction.credit_card} /> : "-"}
+                    </TableCell>
+                    <TableCell>{transaction.category?.name || "-"}</TableCell>
+                    <TableCell>
+                      {(dateOnlyToLocalDate(transaction.transaction_date) || new Date(transaction.transaction_date)).toLocaleDateString("es-AR")}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      {formatCurrency(Number(transaction.budgeted_amount || transaction.amount || 0), transaction.currency)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={transaction.status === "pending" ? "outline" : "secondary"}>
+                        {transaction.status === "pending" ? "Pendiente" : "Activo"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem asChild>
+                            <Link href={`/dashboard/transacciones/${transaction.id}`}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Editar
+                            </Link>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

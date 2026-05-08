@@ -7,6 +7,7 @@ import { PaymentMethodBreakdown } from "@/components/dashboard/payment-method-br
 import { SavingsOverview } from "@/components/dashboard/savings-overview"
 import {
   useBrokerPositions,
+  useCategories,
   useCreditCardPurchases,
   useCurrencies,
   useFxQuotes,
@@ -38,6 +39,7 @@ export default function DashboardPage() {
   const { data: yearlyTransactions, isLoading: yearlyLoading } = useYearlyTransactions()
   const { data: creditCardPurchases, isLoading: purchasesLoading } = useCreditCardPurchases()
   const { data: recurringIncomeTemplates } = useRecurringIncomeTemplates()
+  const { data: categories } = useCategories()
   const { data: investments } = useInvestments()
   const { data: brokerPositions } = useBrokerPositions()
   const { data: portfolioSnapshots } = usePortfolioSnapshots()
@@ -50,6 +52,43 @@ export default function DashboardPage() {
   const isLoading = summaryLoading || transactionsLoading || yearlyLoading || purchasesLoading
   const currency = settings?.default_currency || currencies?.find((item) => item.code === "ARS") || currencies?.[0] || null
   const canViewInvestments = canSeeModule("investments", visibility?.membership, visibility?.permissions)
+  const projectedCategories = (categories || []).filter(
+    (category) => category.type === "expense" && category.projection_method === "historical_average",
+  )
+  const projectedCategoryIds = new Set(projectedCategories.map((category) => category.id))
+  const getHistoricalAverageForCategory = (categoryId: string, targetYear: number, targetMonthIndex: number, monthsBack: number) => {
+    const targetIndex = targetYear * 12 + targetMonthIndex
+    const windowMonthlyTotals = new Map<number, number>()
+    const previousMonthlyTotals = new Map<number, number>()
+
+    for (const transaction of yearlyTransactions || []) {
+      if (transaction.status === "rejected") continue
+      if (transaction.type !== "expense") continue
+      if (transaction.is_recurring) continue
+      if (transaction.credit_card_purchase_id) continue
+      if (transaction.category_id !== categoryId) continue
+
+      const amount = Number(transaction.amount || 0)
+      if (amount <= 0) continue
+
+      const transactionIndex = getYearFromDateOnly(transaction.transaction_date) * 12 + getMonthIndexFromDateOnly(transaction.transaction_date)
+      if (transactionIndex >= targetIndex) continue
+
+      previousMonthlyTotals.set(transactionIndex, (previousMonthlyTotals.get(transactionIndex) || 0) + amount)
+      if (transactionIndex < targetIndex - monthsBack) continue
+
+      windowMonthlyTotals.set(transactionIndex, (windowMonthlyTotals.get(transactionIndex) || 0) + amount)
+    }
+
+    const windowValues = Array.from(windowMonthlyTotals.values()).filter((value) => value > 0)
+    if (windowValues.length > 0) {
+      return windowValues.reduce((total, value) => total + value, 0) / windowValues.length
+    }
+
+    const latestMonthWithExpense = Math.max(...Array.from(previousMonthlyTotals.keys()))
+    if (!Number.isFinite(latestMonthWithExpense)) return 0
+    return previousMonthlyTotals.get(latestMonthWithExpense) || 0
+  }
 
   // Process transactions for expense/income table
   const expensesByGroup: Record<string, GroupSummary> = {}
@@ -99,6 +138,9 @@ export default function DashboardPage() {
   
   for (let i = 0; i < 12; i++) {
     const monthData = { month: i + 1, year: selectedYear, income: 0, expenses: 0, savings: 0 }
+    const monthIndex = selectedYear * 12 + i
+    const selectedIndex = selectedYear * 12 + (selectedMonth - 1)
+    const categoriesWithActualExpense = new Set<string>()
     
     if (yearlyTransactions) {
       yearlyTransactions.forEach((t) => {
@@ -108,6 +150,9 @@ export default function DashboardPage() {
             monthData.income += projectedAmount
           } else {
             monthData.expenses += projectedAmount
+            if (t.category_id && projectedCategoryIds.has(t.category_id)) {
+              categoriesWithActualExpense.add(t.category_id)
+            }
           }
         }
       })
@@ -130,6 +175,19 @@ export default function DashboardPage() {
           monthData.expenses += Number(purchase.installment_amount)
         }
       })
+    }
+
+    if (monthIndex > selectedIndex) {
+      for (const category of projectedCategories) {
+        if (categoriesWithActualExpense.has(category.id)) continue
+
+        monthData.expenses += getHistoricalAverageForCategory(
+          category.id,
+          selectedYear,
+          i,
+          Math.max(Number(category.projection_months || 3), 1),
+        )
+      }
     }
     
     monthData.savings = monthData.income - monthData.expenses

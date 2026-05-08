@@ -19,6 +19,10 @@ export function ExpenseIncomeTable({
   type 
 }: ExpenseIncomeTableProps) {
   const groups = type === 'expense' ? expenseGroups : incomeGroups
+  const getExpenseSortAmount = (group: GroupSummary) => Math.max(group.actual, group.budgeted)
+  const displayedGroups = type === 'expense'
+    ? [...groups].sort((a, b) => getExpenseSortAmount(b) - getExpenseSortAmount(a))
+    : groups
   const title = type === 'expense' ? 'Gastos' : 'Ganancias'
   const titleColor = type === 'expense' ? 'text-destructive' : 'text-success'
 
@@ -61,7 +65,7 @@ export function ExpenseIncomeTable({
                   {formatCurrency(totals.difference, currency)}
                 </td>
               </tr>
-              {groups.map((group, idx) => (
+              {displayedGroups.map((group, idx) => (
                 <tr key={idx} className="border-b border-border/50 hover:bg-muted/30">
                   <td className="py-2 font-medium" style={{ borderLeftColor: group.group?.color, borderLeftWidth: 3 }}>
                     {group.group?.name || 'Sin grupo'}
