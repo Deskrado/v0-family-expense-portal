@@ -59,6 +59,7 @@ export function applyTransactionVisibility(
     .filter((transaction) => {
       if (!shouldFilterCategories) return true
       if (!transaction.category_id) return true
+      if (transaction.category?.user_id === membership?.user_id) return true
       return visibleSet.has(transaction.category_id)
     })
     .map((transaction) => {

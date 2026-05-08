@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useCategories, useGroups } from "@/components/dashboard/use-dashboard-data"
+import { useCategories, useFamilyVisibility, useGroups } from "@/components/dashboard/use-dashboard-data"
 import type { Category, Group } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -94,6 +94,7 @@ function groupToForm(group: Group): GroupFormState {
 export function CategoriesGroupsManagement() {
   const { data: categories, isLoading: categoriesLoading } = useCategories()
   const { data: groups, isLoading: groupsLoading } = useGroups()
+  const { data: visibility } = useFamilyVisibility()
   const [search, setSearch] = useState("")
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
@@ -103,6 +104,7 @@ export function CategoriesGroupsManagement() {
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const activeFamilyId = visibility?.membership?.family_id || null
 
   const visibleCategories = useMemo(() => {
     const query = search.toLowerCase()
@@ -162,6 +164,7 @@ export function CategoriesGroupsManagement() {
 
       const payload = {
         user_id: user.id,
+        family_id: activeFamilyId,
         name: categoryForm.name.trim(),
         type: categoryForm.type,
         color: categoryForm.color,
@@ -205,6 +208,7 @@ export function CategoriesGroupsManagement() {
 
       const payload = {
         user_id: user.id,
+        family_id: activeFamilyId,
         name: groupForm.name.trim(),
         description: groupForm.description.trim() || null,
         color: groupForm.color,
