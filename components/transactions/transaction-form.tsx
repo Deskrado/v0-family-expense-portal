@@ -336,15 +336,15 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
   const resolvedBackUrl = backUrl || (type === "expense" ? "/dashboard/gastos" : "/dashboard/ingresos")
 
   return (
-    <Card className="max-w-2xl mx-auto">
+    <Card className="mx-auto w-full max-w-2xl">
       <CardHeader>
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href={resolvedBackUrl}>
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
-          <CardTitle>
+          <CardTitle className="truncate">
             {initialData?.id ? `Editar ${title}` : `Nuevo ${title}`}
           </CardTitle>
         </div>
@@ -614,12 +614,12 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             />
           </div>
 
-          <div className="flex gap-2 pt-4">
-            <Button type="submit" disabled={isSubmitting}>
+          <div className="grid gap-2 pt-4 sm:flex">
+            <Button type="submit" className="w-full sm:w-auto" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {initialData?.id ? "Guardar Cambios" : "Crear"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => router.back()}>
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => router.back()}>
               Cancelar
             </Button>
           </div>

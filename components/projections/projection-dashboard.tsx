@@ -82,12 +82,12 @@ export function ProjectionDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">Ahorro proyectado del año</CardTitle>
           </CardHeader>
-          <CardContent className={`text-2xl font-bold font-mono ${projectedTotal >= 0 ? "text-success" : "text-destructive"}`}>
+          <CardContent className={`font-mono text-xl font-bold sm:text-2xl ${projectedTotal >= 0 ? "text-success" : "text-destructive"}`}>
             {formatCurrency(projectedTotal, currency)}
           </CardContent>
         </Card>
@@ -95,7 +95,7 @@ export function ProjectionDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">Cuotas del año</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold font-mono">
+          <CardContent className="font-mono text-xl font-bold sm:text-2xl">
             {formatCurrency(installmentsTotal, currency)}
           </CardContent>
         </Card>
@@ -122,7 +122,7 @@ export function ProjectionDashboard() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <Table>
+            <Table className="min-w-[720px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Mes</TableHead>

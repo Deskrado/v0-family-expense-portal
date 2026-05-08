@@ -155,14 +155,14 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Quick Actions */}
-      <div className="flex flex-wrap gap-2">
-        <Button asChild>
+      <div className="grid gap-2 sm:flex sm:flex-wrap">
+        <Button className="w-full sm:w-auto" asChild>
           <Link href="/dashboard/gastos/nuevo">
             <Plus className="mr-2 h-4 w-4" />
             Agregar Gasto
           </Link>
         </Button>
-        <Button variant="outline" asChild>
+        <Button variant="outline" className="w-full sm:w-auto" asChild>
           <Link href="/dashboard/ingresos/nuevo">
             <Plus className="mr-2 h-4 w-4" />
             Agregar Ingreso

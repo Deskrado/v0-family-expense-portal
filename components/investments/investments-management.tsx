@@ -503,12 +503,12 @@ export function InvestmentsManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">Portfolio total</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold font-mono">
+          <CardContent className="font-mono text-xl font-bold sm:text-2xl">
             {formatCurrency(totals.current, defaultCurrency)}
           </CardContent>
         </Card>
@@ -516,7 +516,7 @@ export function InvestmentsManagement() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">Manual</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold font-mono">
+          <CardContent className="font-mono text-xl font-bold sm:text-2xl">
             {formatCurrency(manualTotal, defaultCurrency)}
           </CardContent>
         </Card>
@@ -524,24 +524,24 @@ export function InvestmentsManagement() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">Ahorros divisa</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold font-mono">
+          <CardContent className="font-mono text-xl font-bold sm:text-2xl">
             {formatCurrency(foreignSavingsTotal, defaultCurrency)}
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-sm text-muted-foreground">Conectado</CardTitle>
-              <Button variant="ghost" size="sm" onClick={syncIol} disabled={autoRefreshing}>
+              <Button variant="ghost" size="sm" className="w-full sm:w-auto" onClick={syncIol} disabled={autoRefreshing}>
                 {autoRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Actualizar IOL
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="text-2xl font-bold font-mono">
+          <CardContent className="font-mono text-xl font-bold sm:text-2xl">
             {formatCurrency(connectedTotal || Number(latestSnapshot?.total_value || 0), defaultCurrency)}
           </CardContent>
         </Card>
@@ -552,7 +552,7 @@ export function InvestmentsManagement() {
               {autoRefreshing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
           </CardHeader>
-          <CardContent className="text-2xl font-bold font-mono">{positions?.length || 0}</CardContent>
+          <CardContent className="font-mono text-xl font-bold sm:text-2xl">{positions?.length || 0}</CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
@@ -563,7 +563,7 @@ export function InvestmentsManagement() {
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="text-2xl font-bold font-mono">
+          <CardContent className="font-mono text-xl font-bold sm:text-2xl">
             {blueQuote?.ask ? formatCurrency(Number(blueQuote.ask), blueQuote.quote_currency) : "-"}
           </CardContent>
         </Card>
@@ -577,7 +577,7 @@ export function InvestmentsManagement() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div>
               <p className="text-sm text-muted-foreground">Costo</p>
               <p className="text-xl font-bold font-mono">{formatCurrency(consolidated.initial, defaultCurrency)}</p>
@@ -606,12 +606,12 @@ export function InvestmentsManagement() {
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Cartera</CardTitle>
-            <div className="flex gap-2">
+            <div className="grid gap-2 sm:flex">
               <div className="relative flex-1 sm:w-64">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input placeholder="Buscar..." value={search} onChange={(event) => setSearch(event.target.value)} className="pl-8" />
               </div>
-              <Button onClick={openNew}>
+              <Button className="w-full sm:w-auto" onClick={openNew}>
                 <Plus className="mr-2 h-4 w-4" />
                 Nueva
               </Button>

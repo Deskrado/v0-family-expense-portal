@@ -54,6 +54,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 
 interface TransactionListProps {
   transactions: Transaction[]
@@ -261,13 +262,61 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
       : "/dashboard/transacciones"
   const hasActiveFilters = Boolean(searchQuery.trim()) || recurrenceFilter !== "all" || paymentFilter !== "all"
 
+  const renderActions = (transaction: Transaction) => {
+    const status = transaction.status || "approved"
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {status === "pending" && (
+            <>
+              <DropdownMenuItem
+                onClick={() => requestApproval(transaction)}
+                disabled={actionId === `approved-${transaction.id}`}
+              >
+                {actionId === `approved-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                Aprobar
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => updateStatus(transaction, "rejected")}
+                disabled={actionId === `rejected-${transaction.id}`}
+              >
+                {actionId === `rejected-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
+                Rechazar
+              </DropdownMenuItem>
+            </>
+          )}
+          <DropdownMenuItem asChild>
+            <Link href={`${editUrl}/${transaction.id}`}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-destructive"
+            onClick={() => setDeleteId(transaction.id)}
+          >
+            {actionId === `rejected-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+            Eliminar
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
+
   return (
     <>
       <Card>
         <CardHeader>
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <CardTitle>{title}</CardTitle>
+              <CardTitle className="truncate">{title}</CardTitle>
               <Button asChild className="shrink-0 lg:hidden">
                 <Link href={newUrl}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -351,8 +400,57 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
               {hasActiveFilters ? "No se encontraron resultados con los filtros aplicados" : `No hay ${title.toLowerCase()} registrados`}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
+            <>
+              <div className="space-y-3 md:hidden">
+                {filteredTransactions.map((transaction) => {
+                  const status = transaction.status || "approved"
+                  const currency = transaction.currency || null
+                  const amount = Number(transaction.amount || 0)
+
+                  return (
+                    <div key={transaction.id} className="rounded-md border p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-start justify-between gap-3">
+                            <p className="min-w-0 truncate font-medium">{transaction.description}</p>
+                            <p className={cn(
+                              "shrink-0 font-mono text-base font-semibold",
+                              transaction.type === "income" ? "text-success" : "",
+                            )}>
+                              {formatCurrency(amount, currency)}
+                            </p>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {format(dateOnlyToLocalDate(transaction.transaction_date) || new Date(transaction.transaction_date), "dd/MM/yyyy", { locale: es })}
+                          </p>
+                        </div>
+                        {renderActions(transaction)}
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {type === "all" && (
+                          <Badge variant={transaction.type === "expense" ? "destructive" : "secondary"}>
+                            {transaction.type === "expense" ? "Gasto" : "Ingreso"}
+                          </Badge>
+                        )}
+                        {transaction.is_recurring && <Badge variant="secondary">Recurrente</Badge>}
+                        {status === "pending" && <Badge variant="outline">Pendiente</Badge>}
+                        {transaction.category?.name && <Badge variant="outline">{transaction.category.name}</Badge>}
+                        {transaction.group?.name && <Badge variant="outline">{transaction.group.name}</Badge>}
+                      </div>
+
+                      {(type === "expense" || type === "all") && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Medio: {transaction.payment_method ? paymentMethodLabels[transaction.payment_method] : "-"}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="hidden md:block">
+                <Table className="min-w-[920px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Fecha</TableHead>
@@ -426,54 +524,15 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                           {formatCurrency(difference, currency)}
                         </TableCell>
                         <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {status === "pending" && (
-                                <>
-                                  <DropdownMenuItem
-                                    onClick={() => requestApproval(transaction)}
-                                    disabled={actionId === `approved-${transaction.id}`}
-                                  >
-                                    {actionId === `approved-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                                    Aprobar
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    className="text-destructive"
-                                    onClick={() => updateStatus(transaction, "rejected")}
-                                    disabled={actionId === `rejected-${transaction.id}`}
-                                  >
-                                    {actionId === `rejected-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
-                                    Rechazar
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                              <DropdownMenuItem asChild>
-                                <Link href={`${editUrl}/${transaction.id}`}>
-                                  <Pencil className="mr-2 h-4 w-4" />
-                                  Editar
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={() => setDeleteId(transaction.id)}
-                              >
-                                {actionId === `rejected-${transaction.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                                Eliminar
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          {renderActions(transaction)}
                         </TableCell>
                       </TableRow>
                     )
                   })}
                 </TableBody>
               </Table>
-            </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

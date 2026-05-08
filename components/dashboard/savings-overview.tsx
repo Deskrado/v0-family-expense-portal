@@ -40,7 +40,7 @@ export function SavingsOverview({ data, currency, wealth }: SavingsOverviewProps
       <CardContent className="space-y-6">
         {wealth && (
           <div className="rounded-lg border p-4">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-sm font-medium">Total general</span>
               <span className={cn(
                 "text-xl font-bold font-mono",
@@ -87,7 +87,7 @@ export function SavingsOverview({ data, currency, wealth }: SavingsOverviewProps
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
           <div className="p-3 bg-muted rounded-lg">
             <p className="text-xs text-muted-foreground">Mes anterior</p>
             <p className={cn(

@@ -272,7 +272,7 @@ export function CategoriesGroupsManagement() {
           <h2 className="text-2xl font-semibold tracking-tight">Categorias y grupos</h2>
           <p className="text-sm text-muted-foreground">Organizacion para gastos, ingresos y presupuestos.</p>
         </div>
-        <div className="relative sm:w-72">
+        <div className="relative w-full sm:w-72">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Buscar..."
@@ -287,7 +287,7 @@ export function CategoriesGroupsManagement() {
         {error && !categoryDialogOpen && !groupDialogOpen && (
           <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
         )}
-        <TabsList>
+        <TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
           <TabsTrigger value="categories">Categorias</TabsTrigger>
           <TabsTrigger value="groups">Grupos</TabsTrigger>
         </TabsList>
@@ -295,9 +295,9 @@ export function CategoriesGroupsManagement() {
         <TabsContent value="categories">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle>Categorias</CardTitle>
-                <Button onClick={openNewCategory}>
+                <Button className="w-full sm:w-auto" onClick={openNewCategory}>
                   <Plus className="mr-2 h-4 w-4" />
                   Nueva
                 </Button>
@@ -371,9 +371,9 @@ export function CategoriesGroupsManagement() {
         <TabsContent value="groups">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle>Grupos</CardTitle>
-                <Button onClick={openNewGroup}>
+                <Button className="w-full sm:w-auto" onClick={openNewGroup}>
                   <FolderOpen className="mr-2 h-4 w-4" />
                   Nuevo
                 </Button>

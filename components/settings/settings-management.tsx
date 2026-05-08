@@ -615,7 +615,7 @@ export function SettingsManagement() {
       )}
 
       <Tabs defaultValue="profile" className="space-y-4">
-        <TabsList className="flex h-auto flex-wrap justify-start">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start sm:w-auto">
           <TabsTrigger value="profile">Perfil</TabsTrigger>
           <TabsTrigger value="finance">Finanzas</TabsTrigger>
           <TabsTrigger value="family">Hogar</TabsTrigger>
@@ -658,7 +658,7 @@ export function SettingsManagement() {
                   <Input value={email} disabled />
                 </div>
               </div>
-              <Button onClick={saveProfile} disabled={isSubmitting}>
+              <Button className="w-full sm:w-auto" onClick={saveProfile} disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Guardar perfil
               </Button>
@@ -771,7 +771,7 @@ export function SettingsManagement() {
                     <span className="text-sm font-medium">Mostrar archivados</span>
                   </label>
                 </div>
-                <Button onClick={saveSettings} disabled={isSubmitting}>
+                <Button className="w-full sm:w-auto" onClick={saveSettings} disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   Guardar finanzas
                 </Button>
@@ -826,7 +826,7 @@ export function SettingsManagement() {
                     <Input type="number" min={1} max={28} value={familyForm.month_start_day} onChange={(event) => setFamilyForm({ ...familyForm, month_start_day: event.target.value })} />
                   </div>
                 </div>
-                <Button onClick={saveFamily} disabled={isSubmitting}>
+                <Button className="w-full sm:w-auto" onClick={saveFamily} disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   {familyForm.id ? "Guardar hogar" : "Crear hogar"}
                 </Button>
@@ -867,19 +867,19 @@ export function SettingsManagement() {
                               <SelectItem value="viewer">Solo lectura</SelectItem>
                             </SelectContent>
                           </Select>
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={() => saveFamilyMember(member)} disabled={isSubmitting}>
+                          <div className="grid gap-2 sm:flex">
+                            <Button size="sm" className="w-full sm:w-auto" onClick={() => saveFamilyMember(member)} disabled={isSubmitting}>
                               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                               Guardar
                             </Button>
-                            <Button size="sm" variant="outline" onClick={cancelEditMember} disabled={isSubmitting}>
+                            <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={cancelEditMember} disabled={isSubmitting}>
                               <X className="h-4 w-4" />
                               Cancelar
                             </Button>
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div className="min-w-0">
                             <p className="truncate font-medium">{member.user_id === userId ? "Vos" : member.display_name || member.email || member.user_id}</p>
                             <p className="truncate text-xs text-muted-foreground">{member.email || member.family?.name}</p>
@@ -1016,7 +1016,7 @@ export function SettingsManagement() {
                 </label>
 
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="font-medium">Categorías visibles</p>
                       <p className="text-sm text-muted-foreground">Si desactivás una categoría, sus movimientos no aparecen ni entran en cálculos.</p>
@@ -1024,6 +1024,7 @@ export function SettingsManagement() {
                     <Button
                       type="button"
                       variant="outline"
+                      className="w-full sm:w-auto"
                       onClick={() => setPermissionsForm({ ...permissionsForm, visible_category_ids: permissionsForm.visible_category_ids ? null : [] })}
                     >
                       {permissionsForm.visible_category_ids ? "Ver todas" : "Configurar"}
@@ -1096,6 +1097,7 @@ export function SettingsManagement() {
                     <Button
                       type="button"
                       variant="outline"
+                      className="w-full md:w-auto"
                       disabled={!selectedMaskCategory}
                       onClick={() => {
                         if (!selectedMaskCategory) return
@@ -1142,7 +1144,7 @@ export function SettingsManagement() {
                   </div>
                 </div>
 
-                <Button onClick={saveMemberPermissions} disabled={isSubmitting}>
+                <Button className="w-full sm:w-auto" onClick={saveMemberPermissions} disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   Guardar vista del miembro
                 </Button>
@@ -1175,7 +1177,7 @@ export function SettingsManagement() {
                 <Switch checked={settingsForm.auto_create_card_transactions} onCheckedChange={(checked) => setSettingsForm({ ...settingsForm, auto_create_card_transactions: checked })} />
                 <span className="text-sm font-medium">Crear transacciones automaticamente desde compras en cuotas</span>
               </label>
-              <Button onClick={saveSettings} disabled={isSubmitting}>
+              <Button className="w-full sm:w-auto" onClick={saveSettings} disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Guardar alertas
               </Button>

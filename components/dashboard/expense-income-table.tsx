@@ -38,7 +38,7 @@ export function ExpenseIncomeTable({
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[520px] text-sm">
             <thead>
               <tr className="border-b border-border">
                 <th className="text-left py-2 font-medium text-muted-foreground"></th>

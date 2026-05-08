@@ -40,50 +40,77 @@ export function Sidebar() {
   )
 
   return (
-    <aside
-      className={cn(
-        'flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-300',
-        collapsed ? 'w-16' : 'w-64'
-      )}
-    >
-      <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
-        {!collapsed && (
-          <h1 className="text-lg font-semibold truncate">Control de Gastos</h1>
+    <>
+      <aside
+        className={cn(
+          'hidden flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-300 md:flex',
+          collapsed ? 'w-16' : 'w-64'
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setCollapsed(!collapsed)}
-          className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground shrink-0"
-        >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </Button>
-      </div>
-      
-      <nav className="flex-1 p-2 space-y-1">
-        {visibleNavigation.map((item) => {
-          const isActive = pathname === item.href || 
-            (item.href !== '/dashboard' && pathname.startsWith(item.href))
-          
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                collapsed && 'justify-center px-2'
-              )}
-              title={collapsed ? item.name : undefined}
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>{item.name}</span>}
-            </Link>
-          )
-        })}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
+          {!collapsed && (
+            <h1 className="text-lg font-semibold truncate">Control de Gastos</h1>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setCollapsed(!collapsed)}
+            className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground shrink-0"
+          >
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </Button>
+        </div>
+
+        <nav className="flex-1 p-2 space-y-1">
+          {visibleNavigation.map((item) => {
+            const isActive = pathname === item.href ||
+              (item.href !== '/dashboard' && pathname.startsWith(item.href))
+
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                  collapsed && 'justify-center px-2'
+                )}
+                title={collapsed ? item.name : undefined}
+              >
+                <item.icon className="h-5 w-5 shrink-0" />
+                {!collapsed && <span>{item.name}</span>}
+              </Link>
+            )
+          })}
+        </nav>
+      </aside>
+
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-lg backdrop-blur md:hidden">
+        <div className="flex gap-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {visibleNavigation.map((item) => {
+            const isActive = pathname === item.href ||
+              (item.href !== '/dashboard' && pathname.startsWith(item.href))
+
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={cn(
+                  'flex min-w-[72px] flex-col items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors',
+                  isActive
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                )}
+              >
+                <item.icon className="h-5 w-5 shrink-0" />
+                <span className="max-w-[68px] truncate">{item.name}</span>
+              </Link>
+            )
+          })}
+        </div>
       </nav>
-    </aside>
+    </>
   )
 }

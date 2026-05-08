@@ -43,7 +43,7 @@ export function SummaryCards({
     : 0
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -52,7 +52,7 @@ export function SummaryCards({
           <Wallet className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{formatCurrency(initialBalance, currency)}</div>
+          <div className="break-words text-xl font-bold sm:text-2xl">{formatCurrency(initialBalance, currency)}</div>
         </CardContent>
       </Card>
 
@@ -65,7 +65,7 @@ export function SummaryCards({
         </CardHeader>
         <CardContent>
           <div className={cn(
-            "text-2xl font-bold",
+            "break-words text-xl font-bold sm:text-2xl",
             finalBalance >= 0 ? "text-success" : "text-destructive"
           )}>
             {formatCurrency(finalBalance, currency)}
@@ -81,7 +81,7 @@ export function SummaryCards({
           <TrendingUp className="h-4 w-4 text-success" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold text-success">
+          <div className="break-words text-xl font-bold text-success sm:text-2xl">
             {formatCurrency(totalIncome, currency)}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
@@ -104,7 +104,7 @@ export function SummaryCards({
           <TrendingDown className="h-4 w-4 text-destructive" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold text-destructive">
+          <div className="break-words text-xl font-bold text-destructive sm:text-2xl">
             {formatCurrency(totalExpenses, currency)}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
@@ -135,7 +135,7 @@ export function SummaryCards({
               <div>
                 <p className="text-xs text-muted-foreground">{consolidatedLabel}</p>
                 <p className={cn(
-                  "mt-1 text-3xl font-bold font-mono",
+                  "mt-1 break-words text-2xl font-bold font-mono sm:text-3xl",
                   consolidatedTotal >= 0 ? "text-success" : "text-destructive"
                 )}>
                   {formatCurrency(consolidatedTotal, currency)}
@@ -168,9 +168,9 @@ export function SummaryCards({
           <PiggyBank className="h-4 w-4 text-primary" />
         </CardHeader>
         <CardContent>
-          <div className="flex items-baseline gap-4">
+          <div className="flex flex-wrap items-baseline gap-3 sm:gap-4">
             <span className={cn(
-              "text-3xl font-bold",
+              "break-words text-2xl font-bold sm:text-3xl",
               savings >= 0 ? "text-success" : "text-destructive"
             )}>
               {formatCurrency(savings, currency)}

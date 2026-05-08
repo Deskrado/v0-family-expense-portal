@@ -195,15 +195,15 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
   }
 
   return (
-    <Card className="mx-auto max-w-2xl">
+    <Card className="mx-auto w-full max-w-2xl">
       <CardHeader>
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/dashboard/tarjetas">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
-          <CardTitle>{initialData?.id ? "Editar compra en cuotas" : "Compra en cuotas"}</CardTitle>
+          <CardTitle className="truncate">{initialData?.id ? "Editar compra en cuotas" : "Compra en cuotas"}</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -277,12 +277,12 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
           )}
         </div>
 
-        <div className="flex gap-2 pt-2">
-          <Button onClick={savePurchase} disabled={isSubmitting}>
+        <div className="grid gap-2 pt-2 sm:flex">
+          <Button className="w-full sm:w-auto" onClick={savePurchase} disabled={isSubmitting}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {initialData?.id ? "Guardar cambios" : "Guardar compra"}
           </Button>
-          <Button variant="outline" asChild>
+          <Button variant="outline" className="w-full sm:w-auto" asChild>
             <Link href="/dashboard/tarjetas">Cancelar</Link>
           </Button>
         </div>

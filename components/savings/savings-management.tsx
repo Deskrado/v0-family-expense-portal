@@ -208,14 +208,14 @@ export function SavingsManagement() {
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div>
               <p className="text-sm text-muted-foreground">Total general</p>
-              <p className="text-3xl font-bold font-mono">{formatCurrency(wealthBreakdown.total, defaultCurrency)}</p>
+              <p className="font-mono text-2xl font-bold sm:text-3xl">{formatCurrency(wealthBreakdown.total, defaultCurrency)}</p>
             </div>
-            <div className="text-right">
+            <div className="text-left sm:text-right">
               <p className="text-sm text-muted-foreground">Ahorro del mes</p>
               <p className="text-xl font-semibold font-mono">{formatCurrency(summary.savings, defaultCurrency)}</p>
             </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-md bg-muted p-3">
               <p className="text-xs text-muted-foreground">Cash</p>
               <p className="text-lg font-semibold font-mono">{formatCurrency(wealthBreakdown.cash, defaultCurrency)}</p>
@@ -234,7 +234,7 @@ export function SavingsManagement() {
               <p className="text-sm text-muted-foreground">Acumulado en metas activas</p>
               <p className="text-xl font-semibold font-mono">{formatCurrency(totals.current, defaultCurrency)}</p>
             </div>
-            <div className="text-right">
+            <div className="text-left sm:text-right">
               <p className="text-sm text-muted-foreground">Objetivo total</p>
               <p className="text-xl font-semibold font-mono">{formatCurrency(totals.target, defaultCurrency)}</p>
             </div>
@@ -248,12 +248,12 @@ export function SavingsManagement() {
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Metas de ahorro</CardTitle>
-            <div className="flex gap-2">
+            <div className="grid gap-2 sm:flex">
               <div className="relative flex-1 sm:w-64">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input placeholder="Buscar..." value={search} onChange={(event) => setSearch(event.target.value)} className="pl-8" />
               </div>
-              <Button onClick={openNew}>
+              <Button className="w-full sm:w-auto" onClick={openNew}>
                 <Plus className="mr-2 h-4 w-4" />
                 Nueva
               </Button>

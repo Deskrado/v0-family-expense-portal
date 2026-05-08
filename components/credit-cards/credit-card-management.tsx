@@ -290,7 +290,7 @@ export function CreditCardManagement() {
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Tarjetas de crédito</CardTitle>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <div className="relative flex-1 sm:w-64">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -300,13 +300,13 @@ export function CreditCardManagement() {
                   className="pl-8"
                 />
               </div>
-              <Button variant="outline" asChild>
+              <Button variant="outline" asChild className="w-full sm:w-auto">
                 <Link href="/dashboard/tarjetas/compra">
                   <CreditCardIcon className="mr-2 h-4 w-4" />
                   Compra
                 </Link>
               </Button>
-              <Button onClick={openNewDialog}>
+              <Button onClick={openNewDialog} className="w-full sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" />
                 Nueva
               </Button>

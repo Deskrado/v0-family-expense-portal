@@ -37,16 +37,16 @@ export function MonthYearSelector({ month, year, onChange }: MonthYearSelectorPr
   const years = Array.from({ length: 10 }, (_, i) => year - 5 + i)
 
   return (
-    <div className="flex items-center gap-2">
-      <Button variant="ghost" size="icon" onClick={handlePrevMonth}>
+    <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+      <Button variant="ghost" size="icon-sm" onClick={handlePrevMonth} className="shrink-0">
         <ChevronLeft className="h-4 w-4" />
       </Button>
       
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="min-w-[180px]">
-            <Calendar className="h-4 w-4 mr-2" />
-            {getMonthName(month)} {year}
+          <Button variant="outline" className="min-w-0 max-w-[170px] flex-1 px-2 sm:min-w-[180px] sm:px-4">
+            <Calendar className="mr-2 h-4 w-4 shrink-0" />
+            <span className="truncate">{getMonthName(month)} {year}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="center" className="w-64">
@@ -78,7 +78,7 @@ export function MonthYearSelector({ month, year, onChange }: MonthYearSelectorPr
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Button variant="ghost" size="icon" onClick={handleNextMonth}>
+      <Button variant="ghost" size="icon-sm" onClick={handleNextMonth} className="shrink-0">
         <ChevronRight className="h-4 w-4" />
       </Button>
     </div>

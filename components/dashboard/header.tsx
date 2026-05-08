@@ -31,8 +31,8 @@ export function Header({ email, currentMonth, currentYear, onMonthYearChange }: 
   }
 
   return (
-    <header className="flex items-center justify-between h-16 px-6 border-b border-border bg-card">
-      <div className="flex items-center gap-4">
+    <header className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-3 py-2 sm:px-4 md:px-6">
+      <div className="min-w-0 flex-1">
         <MonthYearSelector 
           month={currentMonth} 
           year={currentYear} 
@@ -40,12 +40,12 @@ export function Header({ email, currentMonth, currentYear, onMonthYearChange }: 
         />
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Plus className="h-4 w-4 mr-2" />
-              Agregar
+            <Button variant="outline" size="sm" className="px-2 sm:px-3">
+              <Plus className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Agregar</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -70,12 +70,12 @@ export function Header({ email, currentMonth, currentYear, onMonthYearChange }: 
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuLabel className="font-normal">
-              <p className="text-sm font-medium">{email || 'Usuario'}</p>
+              <p className="max-w-[220px] truncate text-sm font-medium">{email || 'Usuario'}</p>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut}>
               <LogOut className="h-4 w-4 mr-2" />
-              Cerrar sesion
+              Cerrar sesión
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
