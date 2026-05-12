@@ -28,6 +28,8 @@ interface AnnualProjectionChartProps {
   currentMonth: number
   currentYear: number
   currency: Currency | null
+  title?: string
+  description?: string
 }
 
 type ChartPoint = {
@@ -44,7 +46,9 @@ export function AnnualProjectionChart({
   data, 
   currentMonth, 
   currentYear, 
-  currency 
+  currency,
+  title = 'Proyección anual',
+  description = 'Ingresos, gastos y ahorro del período seleccionado',
 }: AnnualProjectionChartProps) {
   const chartData = useMemo<ChartPoint[]>(() => data.map(item => ({
     name: getMonthName(item.month, true),
@@ -71,9 +75,9 @@ export function AnnualProjectionChart({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Proyección anual</CardTitle>
+        <CardTitle className="text-lg">{title}</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Ingresos, gastos y ahorro de los últimos 12 meses
+          {description}
         </p>
       </CardHeader>
       <CardContent>

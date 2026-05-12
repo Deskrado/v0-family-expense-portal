@@ -1,6 +1,5 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -11,7 +10,6 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 export default function LoginPage() {
@@ -19,24 +17,23 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    const supabase = createClient()
     setIsLoading(true)
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       })
-      if (error) throw error
-      router.replace('/dashboard')
-      router.refresh()
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Error al iniciar sesión')
+      window.location.assign('/dashboard')
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : 'Error al iniciar sesion')
+      setError(error instanceof Error ? error.message : 'Error al iniciar sesión')
     } finally {
       setIsLoading(false)
     }
@@ -48,13 +45,13 @@ export default function LoginPage() {
         <div className="flex flex-col gap-6">
           <div className="text-center">
             <h1 className="text-3xl font-bold text-foreground">Control de Gastos</h1>
-            <p className="text-muted-foreground mt-2">Gestiona tus finanzas familiares</p>
+            <p className="text-muted-foreground mt-2">Gestioná tus finanzas familiares</p>
           </div>
           <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">Iniciar Sesion</CardTitle>
+              <CardTitle className="text-2xl">Iniciar sesión</CardTitle>
               <CardDescription>
-                Ingresa tu email para acceder a tu cuenta
+                Ingresá tu email para acceder a tu cuenta
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -72,7 +69,7 @@ export default function LoginPage() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="password">Contrasena</Label>
+                    <Label htmlFor="password">Contraseña</Label>
                     <Input
                       id="password"
                       type="password"
@@ -83,7 +80,7 @@ export default function LoginPage() {
                   </div>
                   {error && <p className="text-sm text-destructive">{error}</p>}
                   <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? 'Iniciando...' : 'Iniciar Sesion'}
+                    {isLoading ? 'Iniciando...' : 'Iniciar sesión'}
                   </Button>
                 </div>
               </form>

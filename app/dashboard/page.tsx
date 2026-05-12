@@ -26,11 +26,9 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import Link from "next/link"
 import type { GroupSummary } from "@/lib/types"
-import { getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
-import { getRecurringProjectionForMonth } from "@/lib/recurring-projection"
-import { getCreditCardInstallmentDueDate } from "@/lib/credit-card-billing"
 import { getWealthBreakdown } from "@/lib/wealth-summary"
 import { canSeeModule } from "@/lib/family-visibility"
+import { buildAnnualProjection } from "@/lib/projection-engine"
 
 export default function DashboardPage() {
   const { selectedMonth, selectedYear } = useDashboard()
@@ -52,44 +50,6 @@ export default function DashboardPage() {
   const isLoading = summaryLoading || transactionsLoading || yearlyLoading || purchasesLoading
   const currency = settings?.default_currency || currencies?.find((item) => item.code === "ARS") || currencies?.[0] || null
   const canViewInvestments = canSeeModule("investments", visibility?.membership, visibility?.permissions)
-  const projectedCategories = (categories || []).filter(
-    (category) => category.type === "expense" && category.projection_method === "historical_average",
-  )
-  const projectedCategoryIds = new Set(projectedCategories.map((category) => category.id))
-  const getHistoricalAverageForCategory = (categoryId: string, targetYear: number, targetMonthIndex: number, monthsBack: number) => {
-    const targetIndex = targetYear * 12 + targetMonthIndex
-    const windowMonthlyTotals = new Map<number, number>()
-    const previousMonthlyTotals = new Map<number, number>()
-
-    for (const transaction of yearlyTransactions || []) {
-      if (transaction.status === "rejected") continue
-      if (transaction.type !== "expense") continue
-      if (transaction.is_recurring) continue
-      if (transaction.credit_card_purchase_id) continue
-      if (transaction.category_id !== categoryId) continue
-
-      const amount = Number(transaction.amount || 0)
-      if (amount <= 0) continue
-
-      const transactionIndex = getYearFromDateOnly(transaction.transaction_date) * 12 + getMonthIndexFromDateOnly(transaction.transaction_date)
-      if (transactionIndex >= targetIndex) continue
-
-      previousMonthlyTotals.set(transactionIndex, (previousMonthlyTotals.get(transactionIndex) || 0) + amount)
-      if (transactionIndex < targetIndex - monthsBack) continue
-
-      windowMonthlyTotals.set(transactionIndex, (windowMonthlyTotals.get(transactionIndex) || 0) + amount)
-    }
-
-    const windowValues = Array.from(windowMonthlyTotals.values()).filter((value) => value > 0)
-    if (windowValues.length > 0) {
-      return windowValues.reduce((total, value) => total + value, 0) / windowValues.length
-    }
-
-    const latestMonthWithExpense = Math.max(...Array.from(previousMonthlyTotals.keys()))
-    if (!Number.isFinite(latestMonthWithExpense)) return 0
-    return previousMonthlyTotals.get(latestMonthWithExpense) || 0
-  }
-
   // Process transactions for expense/income table
   const expensesByGroup: Record<string, GroupSummary> = {}
   const incomeByCategory: Record<string, GroupSummary> = {}
@@ -133,66 +93,14 @@ export default function DashboardPage() {
     })
   }
 
-  // Process yearly data for projection chart
-  const monthlyData: { month: number; year: number; income: number; expenses: number; savings: number }[] = []
-  
-  for (let i = 0; i < 12; i++) {
-    const monthData = { month: i + 1, year: selectedYear, income: 0, expenses: 0, savings: 0 }
-    const monthIndex = selectedYear * 12 + i
-    const selectedIndex = selectedYear * 12 + (selectedMonth - 1)
-    const categoriesWithActualExpense = new Set<string>()
-    
-    if (yearlyTransactions) {
-      yearlyTransactions.forEach((t) => {
-        if (getYearFromDateOnly(t.transaction_date) === selectedYear && getMonthIndexFromDateOnly(t.transaction_date) === i) {
-          const projectedAmount = t.status === "rejected" ? 0 : Number(t.amount)
-          if (t.type === "income") {
-            monthData.income += projectedAmount
-          } else {
-            monthData.expenses += projectedAmount
-            if (t.category_id && projectedCategoryIds.has(t.category_id)) {
-              categoriesWithActualExpense.add(t.category_id)
-            }
-          }
-        }
-      })
-    }
-
-    const recurringProjection = getRecurringProjectionForMonth(yearlyTransactions, selectedYear, i, selectedYear, selectedMonth, recurringIncomeTemplates)
-    monthData.income += recurringProjection.income
-    monthData.expenses += recurringProjection.expenses
-    
-    if (creditCardPurchases) {
-      creditCardPurchases.forEach((purchase) => {
-        for (let installmentIndex = 0; installmentIndex < purchase.total_installments; installmentIndex += 1) {
-          const installmentDueDate = getCreditCardInstallmentDueDate(purchase.start_date, purchase.credit_card, installmentIndex)
-          if (getYearFromDateOnly(installmentDueDate) !== selectedYear || getMonthIndexFromDateOnly(installmentDueDate) !== i) continue
-
-          const hasCurrentTransaction = (purchase.transactions || []).some(
-            (transaction) => Number(transaction.installment_number || 0) === installmentIndex + 1,
-          )
-          if (hasCurrentTransaction) return
-          monthData.expenses += Number(purchase.installment_amount)
-        }
-      })
-    }
-
-    if (monthIndex > selectedIndex) {
-      for (const category of projectedCategories) {
-        if (categoriesWithActualExpense.has(category.id)) continue
-
-        monthData.expenses += getHistoricalAverageForCategory(
-          category.id,
-          selectedYear,
-          i,
-          Math.max(Number(category.projection_months || 3), 1),
-        )
-      }
-    }
-    
-    monthData.savings = monthData.income - monthData.expenses
-    monthlyData.push(monthData)
-  }
+  const monthlyData = buildAnnualProjection({
+    year: selectedYear,
+    selectedMonth,
+    transactions: yearlyTransactions,
+    purchases: creditCardPurchases,
+    recurringIncomeTemplates,
+    categories,
+  })
 
   const configuredInitialBalance = settings?.initial_balance || 0
   const priorMonthsSavings = monthlyData.slice(0, selectedMonth - 1).reduce((total, item) => total + item.savings, 0)

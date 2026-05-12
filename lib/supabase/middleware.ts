@@ -47,7 +47,8 @@ export async function updateSession(request: NextRequest) {
   if (
     (request.nextUrl.pathname.startsWith('/auth/login') ||
       request.nextUrl.pathname.startsWith('/auth/sign-up')) &&
-    user
+    user &&
+    request.nextUrl.searchParams.get('force') !== '1'
   ) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'

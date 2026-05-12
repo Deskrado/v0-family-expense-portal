@@ -7,6 +7,7 @@ import { useDashboard } from "./dashboard-context"
 import type {
   Transaction,
   RecurringIncomeTemplate,
+  ProjectionScenario,
   Category,
   Group,
   Currency,
@@ -19,6 +20,7 @@ import type {
   FxQuote,
   SavingsGoal,
   UserSettings,
+  MonthlyClosure,
   FamilyMember,
   FamilyMemberPermissions,
 } from "@/lib/types"
@@ -305,13 +307,14 @@ export function useMonthlyTransactions() {
 }
 
 export function useYearlyTransactions() {
-  const { selectedYear } = useDashboard()
+  const { selectedMonth, selectedYear } = useDashboard()
   const { data: visibility } = useFamilyVisibility()
   const visibilityScope = getVisibilityScope(visibility)
-  const endDate = `${selectedYear}-12-31`
+  const projectionEnd = new Date(selectedYear, selectedMonth + 11, 0)
+  const endDate = projectionEnd.toISOString().split("T")[0]
 
   const result = useSWR<Transaction[]>(
-    visibilityScope ? ["transactions-year", selectedYear, visibilityScope] : null,
+    visibilityScope ? ["transactions-year", selectedYear, selectedMonth, endDate, visibilityScope] : null,
     async () => {
       const { data, error } = await supabase
         .from("transactions")
@@ -429,6 +432,39 @@ export function useRecurringIncomeTemplates() {
   return { ...result, data }
 }
 
+export function useProjectionScenarios() {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  const result = useSWR<ProjectionScenario[]>(visibilityScope ? ["projection-scenarios", visibilityScope] : null, async () => {
+    const response = await fetch("/api/projection-scenarios")
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.error || "Error al obtener escenarios")
+    return payload.scenarios || []
+  })
+
+  const membership = visibility?.membership
+  const permissions = visibility?.permissions
+  const shouldRestrict = canApplyFamilyRestrictions(membership, permissions)
+  const shouldFilter = shouldRestrict && Array.isArray(permissions?.visible_category_ids)
+  const data = !shouldRestrict
+    ? result.data
+    : (result.data || []).map((scenario) => ({
+        ...scenario,
+        items: (scenario.items || [])
+          .filter((item) =>
+            !shouldFilter ||
+            !item.category_id ||
+            isCategoryVisibleForMember(item.category || { id: item.category_id, created_at: "" }, permissions)
+          )
+          .map((item) => {
+            const maskedAmount = getMaskedCategoryAmount(item.category_id, permissions)
+            return maskedAmount === null ? item : { ...item, amount: maskedAmount }
+          }),
+      }))
+
+  return { ...result, data }
+}
+
 export function useBrokerConnections() {
   const { data: visibility } = useFamilyVisibility()
   const visibilityScope = getVisibilityScope(visibility)
@@ -523,6 +559,18 @@ export function useUserSettings() {
       .maybeSingle()
     if (error) throw error
     return (data as UserSettings | null) || null
+  })
+}
+
+export function useMonthlyClosures() {
+  const { selectedYear } = useDashboard()
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  return useSWR<MonthlyClosure[]>(visibilityScope ? ["monthly-closures", selectedYear, visibilityScope] : null, async () => {
+    const response = await fetch(`/api/monthly-closures?year=${selectedYear}`)
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.error || "Error al obtener cierres")
+    return payload.closures || []
   })
 }
 

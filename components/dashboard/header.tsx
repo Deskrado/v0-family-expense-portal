@@ -27,7 +27,7 @@ export function Header({ email, currentMonth, currentYear, onMonthYearChange }: 
   const handleSignOut = async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
-    router.push('/auth/login')
+    window.location.href = '/auth/logout'
   }
 
   return (

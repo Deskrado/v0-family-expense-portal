@@ -167,6 +167,38 @@ export interface RecurringIncomeTemplate {
   group?: Group | null
 }
 
+export interface ProjectionScenarioItem {
+  id: string
+  scenario_id: string
+  name: string
+  amount: number
+  currency_id: string | null
+  frequency: 'monthly' | 'one_time'
+  start_month: number
+  start_year: number
+  end_month: number
+  end_year: number
+  category_id: string | null
+  group_id: string | null
+  created_at: string
+  updated_at?: string
+  currency?: Currency | null
+  category?: Category | null
+  group?: Group | null
+}
+
+export interface ProjectionScenario {
+  id: string
+  user_id: string
+  family_id: string | null
+  name: string
+  description: string | null
+  is_active: boolean
+  created_at: string
+  updated_at?: string
+  items?: ProjectionScenarioItem[]
+}
+
 export interface CreditCardPurchase {
   id: string
   user_id: string
@@ -389,6 +421,25 @@ export interface MonthlySavings {
   savings_amount: number
   currency_id: string | null
   created_at: string
+}
+
+export interface MonthlyClosure {
+  id: string
+  user_id: string
+  family_id: string | null
+  year: number
+  month: number
+  income_total: number
+  expense_total: number
+  savings_total: number
+  cash_total: number
+  investments_total: number
+  foreign_currency_total: number
+  snapshot: Record<string, unknown>
+  closed_by: string | null
+  closed_at: string
+  created_at: string
+  updated_at?: string
 }
 
 export interface UserSettings {
