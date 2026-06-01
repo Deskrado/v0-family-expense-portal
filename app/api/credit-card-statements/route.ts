@@ -27,6 +27,14 @@ function statementAmount(transaction: Pick<Transaction, "amount" | "budgeted_amo
   return Number(transaction.budgeted_amount ?? transaction.amount ?? 0)
 }
 
+function roundCurrency(value: number) {
+  return Math.round(value * 100) / 100
+}
+
+function getStatementPaymentDate(card: Pick<CreditCard, "due_day">, year: number, month: number) {
+  return toDateOnly(year, month, card.due_day || new Date(year, month, 0).getDate())
+}
+
 function buildStatementRow({
   card,
   existing,
@@ -270,18 +278,92 @@ export async function POST(request: NextRequest) {
       .lte("transaction_date", endDate)
     if (pendingError) throw pendingError
 
-    for (const transaction of pendingTransactions || []) {
-      const amount = statementAmount(transaction as Transaction)
+    const transactionsToApprove = pendingTransactions || []
+    const targetCurrentExpense = Math.min(expectedAmount, paidAmount)
+    let assignedCurrentExpense = 0
+
+    for (let index = 0; index < transactionsToApprove.length; index += 1) {
+      const transaction = transactionsToApprove[index]
+      const budgetedAmount = statementAmount(transaction as Transaction)
+      const isLast = index === transactionsToApprove.length - 1
+      const amount = expectedAmount > 0
+        ? isLast
+          ? roundCurrency(targetCurrentExpense - assignedCurrentExpense)
+          : roundCurrency((budgetedAmount / expectedAmount) * targetCurrentExpense)
+        : budgetedAmount
+      assignedCurrentExpense += amount
+
       const { error: updateError } = await supabase
         .from("transactions")
         .update({
-          amount,
+          amount: Math.max(amount, 0.01),
           status: "approved",
           approved_at: now,
           approved_by: user.id,
         })
         .eq("id", transaction.id)
       if (updateError) throw updateError
+    }
+
+    const adjustmentAmount = roundCurrency(paidAmount - expectedAmount)
+    if (adjustmentAmount > 0.009) {
+      const metadata = {
+        source: "credit_card_statement_payment_adjustment",
+        credit_card_statement_id: statement.id,
+        expected_amount: expectedAmount,
+        paid_amount: paidAmount,
+        previous_balance: previousBalance,
+        adjustment_kind: paidAmount > amountDue ? "overpayment" : "previous_balance_payment",
+      }
+
+      const { data: existingAdjustments, error: existingAdjustmentError } = await supabase
+        .from("transactions")
+        .select("id")
+        .is("archived_at", null)
+        .eq("type", "expense")
+        .eq("payment_method", "credit")
+        .eq("credit_card_id", creditCardId)
+        .gte("transaction_date", startDate)
+        .lte("transaction_date", endDate)
+        .contains("metadata", { source: "credit_card_statement_payment_adjustment", credit_card_statement_id: statement.id })
+      if (existingAdjustmentError) throw existingAdjustmentError
+
+      const adjustmentPayload = {
+        user_id: user.id,
+        family_id: card.family_id || null,
+        created_by: user.id,
+        description: `Ajuste pago ${card.name}`,
+        amount: adjustmentAmount,
+        budgeted_amount: adjustmentAmount,
+        currency_id: card.currency_id || null,
+        category_id: null,
+        group_id: null,
+        transaction_date: getStatementPaymentDate(card, year, month),
+        type: "expense",
+        is_recurring: false,
+        payment_method: "credit",
+        credit_card_id: creditCardId,
+        credit_card_purchase_id: null,
+        installment_number: null,
+        status: "approved",
+        approved_at: now,
+        approved_by: user.id,
+        notes: null,
+        metadata,
+      }
+
+      if (existingAdjustments && existingAdjustments.length > 0) {
+        const { error: adjustmentUpdateError } = await supabase
+          .from("transactions")
+          .update(adjustmentPayload)
+          .eq("id", existingAdjustments[0].id)
+        if (adjustmentUpdateError) throw adjustmentUpdateError
+      } else {
+        const { error: adjustmentInsertError } = await supabase
+          .from("transactions")
+          .insert(adjustmentPayload)
+        if (adjustmentInsertError) throw adjustmentInsertError
+      }
     }
 
     return NextResponse.json({ statement, approvedTransactions: pendingTransactions?.length || 0 })
