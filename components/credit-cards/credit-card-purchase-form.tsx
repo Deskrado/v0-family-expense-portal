@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select"
 import { formatCurrency } from "@/lib/currency"
 import { CreditCardSelectLabel } from "@/components/credit-cards/card-brand"
-import { formatDateOnlyForDisplay, getCreditCardInstallmentDueDate, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
+import { formatDateOnlyForDisplay, getCreditCardInstallmentDueDate, getCreditCardStatementDueDate, requiresCreditCardPaymentApproval } from "@/lib/credit-card-billing"
 import type { CreditCardPurchase } from "@/lib/types"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
@@ -136,6 +136,7 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
         const installmentNumber = index + 1
         const dueDate = getCreditCardInstallmentDueDate(form.start_date, selectedCard, index)
         const existing = existingByInstallment.get(installmentNumber)
+        const requiresApproval = requiresCreditCardPaymentApproval(dueDate)
         const transactionPayload = {
           user_id: user.id,
           description: form.description.trim(),
@@ -151,9 +152,9 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
           credit_card_id: form.credit_card_id,
           credit_card_purchase_id: purchaseId,
           installment_number: installmentNumber,
-          status: existing?.status || "approved",
-          approved_at: existing?.approved_at || new Date().toISOString(),
-          approved_by: existing?.approved_by || user.id,
+          status: existing?.status || (requiresApproval ? "pending" : "approved"),
+          approved_at: existing?.approved_at || (requiresApproval ? null : new Date().toISOString()),
+          approved_by: existing?.approved_by || (requiresApproval ? null : user.id),
           notes: null,
           metadata: {
             source: "credit_card_installment",

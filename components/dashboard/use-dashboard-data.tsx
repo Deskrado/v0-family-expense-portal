@@ -13,6 +13,7 @@ import type {
   Currency,
   CreditCard,
   CreditCardPurchase,
+  CreditCardStatement,
   Investment,
   BrokerConnection,
   BrokerPosition,
@@ -246,6 +247,45 @@ export function useCreditCardStatementTransactions(year: number, month: number) 
     ...result,
     data: applyTransactionVisibility(result.data, visibility?.membership, visibility?.permissions),
   }
+}
+
+export function useCreditCardStatements(year: number, month: number) {
+  const { data: visibility } = useFamilyVisibility()
+  const visibilityScope = getVisibilityScope(visibility)
+  const key = visibilityScope ? ["credit-card-statements", year, month, visibilityScope] : null
+
+  const result = useSWR<CreditCardStatement[]>(key, async () => {
+    const response = await fetch(`/api/credit-card-statements?year=${year}&month=${month}`)
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.error || "Error al obtener resumenes de tarjeta")
+    return payload.statements || []
+  })
+
+  useEffect(() => {
+    if (!visibilityScope) return
+    const periodKey = `${year}-${month}`
+    if (generatedRecurringExpensePeriods.has(periodKey) && materializedCreditCardPurchasePeriods.has(periodKey)) return
+
+    generatedRecurringExpensePeriods.add(periodKey)
+    materializedCreditCardPurchasePeriods.add(periodKey)
+    Promise.all([
+      postJson("/api/recurring-expenses/generate", { year, month }),
+      postJson("/api/credit-card-purchases/materialize", { year, month }),
+    ])
+      .then((responses) => {
+        if (responses.some((response) => Number(response.created || 0) > 0)) {
+          mutate((cacheKey) => Array.isArray(cacheKey) && cacheKey[0] === "credit-card-statements")
+          mutate((cacheKey) => Array.isArray(cacheKey) && cacheKey[0] === "credit-card-purchases")
+          mutate((cacheKey) => Array.isArray(cacheKey) && cacheKey[0] === "credit-card-statement-transactions")
+        }
+      })
+      .catch(() => {
+        generatedRecurringExpensePeriods.delete(periodKey)
+        materializedCreditCardPurchasePeriods.delete(periodKey)
+      })
+  }, [visibilityScope, month, year])
+
+  return result
 }
 
 export function useMonthlyTransactions() {

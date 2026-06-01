@@ -264,6 +264,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
 
   const renderActions = (transaction: Transaction) => {
     const status = transaction.status || "approved"
+    const isPendingCreditCardExpense = status === "pending" && transaction.type === "expense" && transaction.payment_method === "credit"
 
     return (
       <DropdownMenu>
@@ -273,7 +274,14 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {status === "pending" && (
+          {isPendingCreditCardExpense ? (
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/tarjetas">
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Confirmar resumen
+              </Link>
+            </DropdownMenuItem>
+          ) : status === "pending" && (
             <>
               <DropdownMenuItem
                 onClick={() => requestApproval(transaction)}

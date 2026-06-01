@@ -221,6 +221,29 @@ export interface CreditCardPurchase {
   transactions?: Pick<Transaction, 'id' | 'installment_number'>[]
 }
 
+export interface CreditCardStatement {
+  id?: string | null
+  user_id: string
+  family_id: string | null
+  credit_card_id: string
+  year: number
+  month: number
+  currency_id: string | null
+  expected_amount: number
+  previous_balance: number
+  amount_due: number
+  paid_amount: number
+  balance_delta: number
+  carryover_balance: number
+  status: 'pending' | 'paid'
+  approved_at: string | null
+  approved_by: string | null
+  created_at?: string
+  updated_at?: string
+  credit_card?: CreditCard | null
+  currency?: Currency | null
+}
+
 export interface Budget {
   id: string
   user_id: string

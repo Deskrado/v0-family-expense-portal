@@ -1,6 +1,7 @@
 import type { CreditCard } from "@/lib/types"
 
 type CreditCardBillingConfig = Pick<CreditCard, "closing_day" | "due_day"> | null | undefined
+export const CREDIT_CARD_PAYMENT_APPROVAL_START_DATE = "2026-06-01"
 
 function parseDateOnly(value: string) {
   const year = Number(value.slice(0, 4))
@@ -57,6 +58,10 @@ export function getCreditCardInstallmentDueDate(
 ) {
   const firstDueDate = getCreditCardStatementDueDate(purchaseDate, card)
   return addMonthsToDateOnly(firstDueDate, installmentIndex)
+}
+
+export function requiresCreditCardPaymentApproval(dueDate: string) {
+  return dueDate >= CREDIT_CARD_PAYMENT_APPROVAL_START_DATE
 }
 
 export function formatDateOnlyForDisplay(value: string) {

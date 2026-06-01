@@ -25,6 +25,7 @@ import {
   addMonthsToDateOnly,
   formatDateOnlyForDisplay,
   getCreditCardStatementDueDate,
+  requiresCreditCardPaymentApproval,
 } from "@/lib/credit-card-billing"
 import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Loader2 } from "lucide-react"
@@ -201,6 +202,8 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
 
       let creditCardPurchaseId: string | null = null
       const billingTransactionDate = getBillingDate(data.transaction_date)
+      const requiresCardApproval =
+        data.payment_method === "credit" && requiresCreditCardPaymentApproval(billingTransactionDate)
       const transactionAmount = shouldCreateInstallments ? Number(data.amount) / installments : Number(data.amount)
       const budgetedAmount = data.budgeted_amount || transactionAmount
 
@@ -241,9 +244,9 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
         credit_card_id: data.payment_method === "credit" && data.credit_card_id !== "__none" ? data.credit_card_id || null : null,
         budgeted_amount: budgetedAmount,
         transaction_date: billingTransactionDate,
-        status: shouldCreateRecurringExpense ? "pending" : "approved",
-        approved_at: shouldCreateRecurringExpense ? null : new Date().toISOString(),
-        approved_by: shouldCreateRecurringExpense ? null : user.id,
+        status: shouldCreateRecurringExpense || requiresCardApproval ? "pending" : "approved",
+        approved_at: shouldCreateRecurringExpense || requiresCardApproval ? null : new Date().toISOString(),
+        approved_by: shouldCreateRecurringExpense || requiresCardApproval ? null : user.id,
         notes: data.notes?.trim() || null,
       }
       const recurringSeriesId = shouldCreateRecurringExpense ? crypto.randomUUID() : null

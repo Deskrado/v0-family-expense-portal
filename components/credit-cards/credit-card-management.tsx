@@ -1,20 +1,36 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
+import { mutate } from "swr"
 import { createClient } from "@/lib/supabase/client"
 import { useDashboard } from "@/components/dashboard/dashboard-context"
-import { useCreditCardPurchases, useCreditCards, useCreditCardStatementTransactions, useCurrencies, useUserSettings } from "@/components/dashboard/use-dashboard-data"
+import {
+  useCreditCardPurchases,
+  useCreditCards,
+  useCreditCardStatements,
+  useCreditCardStatementTransactions,
+  useCurrencies,
+  useUserSettings,
+} from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
 import { dateOnlyToLocalDate, getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
-import { getCreditCardInstallmentDueDate, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
-import type { CreditCard, Transaction } from "@/lib/types"
-import { CARD_BRANDS, CardBrandMark, CreditCardSelectLabel, getCardBrandLabel, normalizeCardBrand } from "@/components/credit-cards/card-brand"
+import { getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
+import type { CreditCard, CreditCardStatement, Transaction } from "@/lib/types"
+import {
+  CARD_BRANDS,
+  CardBrandMark,
+  CreditCardSelectLabel,
+  getCardBrandLabel,
+  normalizeCardBrand,
+} from "@/components/credit-cards/card-brand"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -44,8 +60,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { CreditCard as CreditCardIcon, Loader2, MoreHorizontal, Pencil, Plus, Repeat, Search, XCircle } from "lucide-react"
-import Link from "next/link"
-import { mutate } from "swr"
 
 type CardFormState = {
   name: string
@@ -108,17 +122,21 @@ function isTransactionBeforeOrInMonth(transaction: Transaction, year: number, mo
 
 export function CreditCardManagement() {
   const { selectedMonth, selectedYear } = useDashboard()
-  const nextStatementMonth = selectedMonth === 12 ? 1 : selectedMonth + 1
-  const nextStatementYear = selectedMonth === 12 ? selectedYear + 1 : selectedYear
+  const statementMonth = selectedMonth
+  const statementYear = selectedYear
   const { data: cards, isLoading } = useCreditCards()
   const { data: currencies } = useCurrencies()
   const { data: settings } = useUserSettings()
   const { data: purchases, isLoading: purchasesLoading } = useCreditCardPurchases()
-  const { data: statementTransactions } = useCreditCardStatementTransactions(nextStatementYear, nextStatementMonth)
+  const { data: statements, isLoading: statementsLoading } = useCreditCardStatements(statementYear, statementMonth)
+  const { data: statementTransactions } = useCreditCardStatementTransactions(statementYear, statementMonth)
   const [search, setSearch] = useState("")
   const [form, setForm] = useState<CardFormState>(emptyCardForm)
   const [editingCard, setEditingCard] = useState<CreditCard | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [paymentStatement, setPaymentStatement] = useState<CreditCardStatement | null>(null)
+  const [paymentAmount, setPaymentAmount] = useState("")
+  const [statementActionId, setStatementActionId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [consumptionCardFilter, setConsumptionCardFilter] = useState("all")
@@ -126,94 +144,31 @@ export function CreditCardManagement() {
   const visibleCards = useMemo(() => {
     const query = search.toLowerCase()
     return (cards || []).filter((card) =>
-      `${card.name} ${getCardBrandLabel(card.brand)} ${card.last_four || ""}`.toLowerCase().includes(query)
+      `${card.name} ${getCardBrandLabel(card.brand)} ${card.last_four || ""}`.toLowerCase().includes(query),
     )
   }, [cards, search])
+
   const filteredPurchases = useMemo(() => {
     if (consumptionCardFilter === "all") return purchases || []
     return (purchases || []).filter((purchase) => purchase.credit_card_id === consumptionCardFilter)
   }, [consumptionCardFilter, purchases])
 
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
-  const nextStatementTotals = useMemo(() => {
-    const totalsByCard = new Map<string, number>()
-    const targetTransactions = (statementTransactions || []).filter((transaction) =>
-      transaction.status !== "rejected" &&
-      transaction.credit_card_id &&
-      isTransactionInMonth(transaction, nextStatementYear, nextStatementMonth)
-    )
-
-    for (const transaction of targetTransactions) {
-      totalsByCard.set(
-        transaction.credit_card_id!,
-        (totalsByCard.get(transaction.credit_card_id!) || 0) + Number(transaction.budgeted_amount || transaction.amount || 0),
-      )
-    }
-
-    const actualRecurringKeys = new Set(
-      targetTransactions
-        .filter((transaction) => transaction.is_recurring)
-        .map(transactionStatementKey),
-    )
-    const latestRecurringByKey = new Map<string, Transaction>()
-
-    for (const transaction of statementTransactions || []) {
-      if (!transaction.credit_card_id || !transaction.is_recurring || transaction.status === "rejected") continue
-      if (!isTransactionBeforeOrInMonth(transaction, nextStatementYear, nextStatementMonth)) continue
-
-      const endDate = typeof transaction.metadata?.recurrence_end_date === "string" ? transaction.metadata.recurrence_end_date : null
-      const targetDate = `${nextStatementYear}-${String(nextStatementMonth).padStart(2, "0")}-01`
-      if (endDate && targetDate > endDate) continue
-
-      const key = transactionStatementKey(transaction)
-      const current = latestRecurringByKey.get(key)
-      if (!current || transaction.transaction_date > current.transaction_date) {
-        latestRecurringByKey.set(key, transaction)
-      }
-    }
-
-    for (const [key, transaction] of latestRecurringByKey.entries()) {
-      if (actualRecurringKeys.has(key)) continue
-      totalsByCard.set(
-        transaction.credit_card_id!,
-        (totalsByCard.get(transaction.credit_card_id!) || 0) + Number(transaction.budgeted_amount || transaction.amount || 0),
-      )
-    }
-
-    for (const purchase of purchases || []) {
-      for (let installmentIndex = 0; installmentIndex < purchase.total_installments; installmentIndex += 1) {
-        const dueDate = getCreditCardInstallmentDueDate(purchase.start_date, purchase.credit_card, installmentIndex)
-        if (getYearFromDateOnly(dueDate) !== nextStatementYear || getMonthIndexFromDateOnly(dueDate) !== nextStatementMonth - 1) continue
-
-        const hasTransaction = (purchase.transactions || []).some(
-          (transaction) => Number(transaction.installment_number || 0) === installmentIndex + 1,
-        )
-        if (hasTransaction) continue
-
-        totalsByCard.set(
-          purchase.credit_card_id,
-          (totalsByCard.get(purchase.credit_card_id) || 0) + Number(purchase.installment_amount || 0),
-        )
-      }
-    }
-
-    return totalsByCard
-  }, [nextStatementMonth, nextStatementYear, purchases, statementTransactions])
   const recurringCardDebits = useMemo(() => {
-    const targetDate = `${nextStatementYear}-${String(nextStatementMonth).padStart(2, "0")}-01`
+    const targetDate = `${statementYear}-${String(statementMonth).padStart(2, "0")}-01`
     const latestByKey = new Map<string, Transaction>()
 
     for (const transaction of statementTransactions || []) {
       if (!transaction.credit_card_id || !transaction.is_recurring || transaction.status === "rejected") continue
-      if (!isTransactionBeforeOrInMonth(transaction, nextStatementYear, nextStatementMonth)) continue
+      if (!isTransactionBeforeOrInMonth(transaction, statementYear, statementMonth)) continue
 
       const endDate = typeof transaction.metadata?.recurrence_end_date === "string" ? transaction.metadata.recurrence_end_date : null
       if (endDate && targetDate > endDate) continue
 
       const key = transactionStatementKey(transaction)
       const current = latestByKey.get(key)
-      const currentIsTargetMonth = current ? isTransactionInMonth(current, nextStatementYear, nextStatementMonth) : false
-      const transactionIsTargetMonth = isTransactionInMonth(transaction, nextStatementYear, nextStatementMonth)
+      const currentIsTargetMonth = current ? isTransactionInMonth(current, statementYear, statementMonth) : false
+      const transactionIsTargetMonth = isTransactionInMonth(transaction, statementYear, statementMonth)
 
       if (
         !current ||
@@ -226,12 +181,13 @@ export function CreditCardManagement() {
 
     const rows = Array.from(latestByKey.values()).sort((a, b) =>
       (a.credit_card?.name || "").localeCompare(b.credit_card?.name || "") ||
-      a.description.localeCompare(b.description)
+      a.description.localeCompare(b.description),
     )
 
     if (consumptionCardFilter === "all") return rows
     return rows.filter((transaction) => transaction.credit_card_id === consumptionCardFilter)
-  }, [consumptionCardFilter, nextStatementMonth, nextStatementYear, statementTransactions])
+  }, [consumptionCardFilter, statementMonth, statementYear, statementTransactions])
+
   const automaticDebitHref = `/dashboard/transacciones/nuevo?type=expense&payment=credit&recurring=1&back=/dashboard/tarjetas&redirect=/dashboard/tarjetas${
     consumptionCardFilter === "all" ? "" : `&cardId=${encodeURIComponent(consumptionCardFilter)}`
   }`
@@ -256,7 +212,7 @@ export function CreditCardManagement() {
       return
     }
     if (form.last_four && !/^[0-9]{4}$/.test(form.last_four)) {
-      setError("Los últimos 4 dígitos deben ser numéricos")
+      setError("Los ultimos 4 digitos deben ser numericos")
       return
     }
     if (form.credit_limit && Number(form.credit_limit) < 0) {
@@ -302,6 +258,7 @@ export function CreditCardManagement() {
 
       mutate((key) => key === "credit-cards" || (Array.isArray(key) && key[0] === "credit-cards"))
       mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
+      mutate((key) => Array.isArray(key) && key[0] === "credit-card-statements")
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la tarjeta")
@@ -312,25 +269,74 @@ export function CreditCardManagement() {
 
   const setCardActive = async (card: CreditCard, isActive: boolean) => {
     const supabase = createClient()
-    const { error } = await supabase
+    const { error: updateError } = await supabase
       .from("credit_cards")
       .update({ is_active: isActive })
       .eq("id", card.id)
 
-    if (error) {
-      setError(error.message)
+    if (updateError) {
+      setError(updateError.message)
       return
     }
     mutate((key) => key === "credit-cards" || (Array.isArray(key) && key[0] === "credit-cards"))
     mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
+    mutate((key) => Array.isArray(key) && key[0] === "credit-card-statements")
   }
+
+  const openPaymentDialog = (statement: CreditCardStatement) => {
+    setPaymentStatement(statement)
+    setPaymentAmount(String(Math.max(Number(statement.amount_due || 0), 0)))
+    setError(null)
+  }
+
+  const confirmPayment = async () => {
+    if (!paymentStatement) return
+    const paidAmount = Number(paymentAmount)
+    if (!Number.isFinite(paidAmount) || paidAmount < 0) {
+      setError("Ingresa un monto pagado valido")
+      return
+    }
+
+    setStatementActionId(paymentStatement.credit_card_id)
+    setError(null)
+
+    try {
+      const response = await fetch("/api/credit-card-statements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creditCardId: paymentStatement.credit_card_id,
+          year: paymentStatement.year,
+          month: paymentStatement.month,
+          paidAmount,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || "Error al confirmar el pago")
+
+      mutate((key) =>
+        Array.isArray(key) &&
+        ["credit-card-statements", "credit-card-statement-transactions", "transactions"].includes(String(key[0])),
+      )
+      setPaymentStatement(null)
+      setPaymentAmount("")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al confirmar el pago")
+    } finally {
+      setStatementActionId(null)
+    }
+  }
+
+  const paymentPreview = paymentStatement
+    ? Number(paymentStatement.amount_due || 0) - (Number(paymentAmount) || 0)
+    : 0
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle>Tarjetas de crédito</CardTitle>
+            <CardTitle>Tarjetas de credito</CardTitle>
             <div className="flex flex-col gap-2 sm:flex-row">
               <div className="relative flex-1 sm:w-64">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -350,7 +356,7 @@ export function CreditCardManagement() {
               <Button variant="outline" asChild className="w-full sm:w-auto">
                 <Link href={automaticDebitHref}>
                   <Repeat className="mr-2 h-4 w-4" />
-                  Débito automático
+                  Debito automatico
                 </Link>
               </Button>
               <Button onClick={openNewDialog} className="w-full sm:w-auto">
@@ -361,7 +367,7 @@ export function CreditCardManagement() {
           </div>
         </CardHeader>
         <CardContent>
-          {error && !dialogOpen && (
+          {error && !dialogOpen && !paymentStatement && (
             <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
           )}
           {isLoading ? (
@@ -377,7 +383,7 @@ export function CreditCardManagement() {
                   <TableRow>
                     <TableHead>Tarjeta</TableHead>
                     <TableHead>Marca</TableHead>
-                    <TableHead className="text-right">Límite</TableHead>
+                    <TableHead className="text-right">Limite</TableHead>
                     <TableHead>Cierre</TableHead>
                     <TableHead>Vencimiento</TableHead>
                     <TableHead>Estado</TableHead>
@@ -389,9 +395,7 @@ export function CreditCardManagement() {
                     <TableRow key={card.id}>
                       <TableCell className="font-medium">
                         {card.name}
-                        {card.last_four && (
-                          <span className="ml-2 text-muted-foreground">**** {card.last_four}</span>
-                        )}
+                        {card.last_four && <span className="ml-2 text-muted-foreground">**** {card.last_four}</span>}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -402,8 +406,8 @@ export function CreditCardManagement() {
                       <TableCell className="text-right font-mono">
                         {card.credit_limit ? formatCurrency(Number(card.credit_limit), card.currency) : "-"}
                       </TableCell>
-                      <TableCell>{card.closing_day ? `Día ${card.closing_day}` : "-"}</TableCell>
-                      <TableCell>{card.due_day ? `Día ${card.due_day}` : "-"}</TableCell>
+                      <TableCell>{card.closing_day ? `Dia ${card.closing_day}` : "-"}</TableCell>
+                      <TableCell>{card.due_day ? `Dia ${card.due_day}` : "-"}</TableCell>
                       <TableCell>
                         <Badge variant={card.is_active ? "secondary" : "outline"}>
                           {card.is_active ? "Activa" : "Inactiva"}
@@ -438,28 +442,66 @@ export function CreditCardManagement() {
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {(cards || []).filter((card) => card.is_active).map((card) => (
-          <Card key={`statement-${card.id}`}>
+        {statementsLoading ? (
+          <Card>
+            <CardContent className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </CardContent>
+          </Card>
+        ) : (statements || []).map((statement) => (
+          <Card key={`statement-${statement.credit_card_id}`}>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-sm text-muted-foreground">
-                  Próximo pago
+                  Resumen {String(statementMonth).padStart(2, "0")}/{statementYear}
                 </CardTitle>
-                <CardBrandMark brand={card.brand} />
+                <CardBrandMark brand={statement.credit_card?.brand} />
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-medium">{card.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {String(nextStatementMonth).padStart(2, "0")}/{nextStatementYear}
-                  </p>
-                </div>
-                <p className="text-xl font-bold font-mono">
-                  {formatCurrency(nextStatementTotals.get(card.id) || 0, card.currency)}
-                </p>
+            <CardContent className="space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-medium">{statement.credit_card?.name || "Tarjeta"}</p>
+                <Badge variant={statement.status === "paid" ? "secondary" : "outline"}>
+                  {statement.status === "paid" ? "Pagado" : "Pendiente"}
+                </Badge>
               </div>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Previsto pendiente de pago</span>
+                  <span className="font-mono">{formatCurrency(Number(statement.expected_amount || 0), statement.currency || statement.credit_card?.currency)}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Saldo anterior</span>
+                  <span className="font-mono">{formatCurrency(Number(statement.previous_balance || 0), statement.currency || statement.credit_card?.currency)}</span>
+                </div>
+                <div className="flex justify-between gap-3 font-medium">
+                  <span>Total a pagar</span>
+                  <span className="font-mono">{formatCurrency(Number(statement.amount_due || 0), statement.currency || statement.credit_card?.currency)}</span>
+                </div>
+                {statement.status === "paid" && (
+                  <>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Monto pagado</span>
+                      <span className="font-mono">{formatCurrency(Number(statement.paid_amount || 0), statement.currency || statement.credit_card?.currency)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">Saldo resultante</span>
+                      <span className="font-mono">{formatCurrency(Number(statement.carryover_balance || 0), statement.currency || statement.credit_card?.currency)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+              {statement.status !== "paid" && (
+                <Button
+                  className="w-full"
+                  size="sm"
+                  onClick={() => openPaymentDialog(statement)}
+                  disabled={statementActionId === statement.credit_card_id}
+                >
+                  {statementActionId === statement.credit_card_id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Confirmar pago
+                </Button>
+              )}
             </CardContent>
           </Card>
         ))}
@@ -500,7 +542,7 @@ export function CreditCardManagement() {
                   <TableRow>
                     <TableHead>Compra</TableHead>
                     <TableHead>Tarjeta</TableHead>
-                    <TableHead>Compra</TableHead>
+                    <TableHead>Fecha</TableHead>
                     <TableHead>Primer vencimiento</TableHead>
                     <TableHead>Cuotas</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -512,9 +554,7 @@ export function CreditCardManagement() {
                   {filteredPurchases.map((purchase) => (
                     <TableRow key={purchase.id}>
                       <TableCell className="font-medium">{purchase.description}</TableCell>
-                      <TableCell>
-                        {purchase.credit_card ? <CreditCardSelectLabel card={purchase.credit_card} /> : "-"}
-                      </TableCell>
+                      <TableCell>{purchase.credit_card ? <CreditCardSelectLabel card={purchase.credit_card} /> : "-"}</TableCell>
                       <TableCell>{(dateOnlyToLocalDate(purchase.start_date) || new Date(purchase.start_date)).toLocaleDateString("es-AR")}</TableCell>
                       <TableCell>
                         {(dateOnlyToLocalDate(getCreditCardStatementDueDate(purchase.start_date, purchase.credit_card)) || new Date(purchase.start_date)).toLocaleDateString("es-AR")}
@@ -555,7 +595,7 @@ export function CreditCardManagement() {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle>Débitos automáticos activos</CardTitle>
+            <CardTitle>Debitos automaticos activos</CardTitle>
             <Select value={consumptionCardFilter} onValueChange={setConsumptionCardFilter}>
               <SelectTrigger className="w-full sm:w-72">
                 <SelectValue placeholder="Filtrar por tarjeta" />
@@ -578,7 +618,7 @@ export function CreditCardManagement() {
             </div>
           ) : recurringCardDebits.length === 0 ? (
             <div className="py-8 text-center text-muted-foreground">
-              {consumptionCardFilter === "all" ? "No hay débitos automáticos activos" : "No hay débitos automáticos para esta tarjeta"}
+              {consumptionCardFilter === "all" ? "No hay debitos automaticos activos" : "No hay debitos automaticos para esta tarjeta"}
             </div>
           ) : (
             <Table>
@@ -586,8 +626,8 @@ export function CreditCardManagement() {
                 <TableRow>
                   <TableHead>Servicio</TableHead>
                   <TableHead>Tarjeta</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead>Próximo impacto</TableHead>
+                  <TableHead>Categoria</TableHead>
+                  <TableHead>Impacto</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="w-10"></TableHead>
@@ -597,9 +637,7 @@ export function CreditCardManagement() {
                 {recurringCardDebits.map((transaction) => (
                   <TableRow key={transaction.id}>
                     <TableCell className="font-medium">{transaction.description}</TableCell>
-                    <TableCell>
-                      {transaction.credit_card ? <CreditCardSelectLabel card={transaction.credit_card} /> : "-"}
-                    </TableCell>
+                    <TableCell>{transaction.credit_card ? <CreditCardSelectLabel card={transaction.credit_card} /> : "-"}</TableCell>
                     <TableCell>{transaction.category?.name || "-"}</TableCell>
                     <TableCell>
                       {(dateOnlyToLocalDate(transaction.transaction_date) || new Date(transaction.transaction_date)).toLocaleDateString("es-AR")}
@@ -671,7 +709,7 @@ export function CreditCardManagement() {
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="last_four">Últimos 4</Label>
+                <Label htmlFor="last_four">Ultimos 4</Label>
                 <Input id="last_four" maxLength={4} value={form.last_four} onChange={(event) => setForm({ ...form, last_four: event.target.value })} />
               </div>
               <div className="space-y-2">
@@ -685,7 +723,7 @@ export function CreditCardManagement() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="credit_limit">Límite</Label>
+                <Label htmlFor="credit_limit">Limite</Label>
                 <Input id="credit_limit" type="number" step="0.01" value={form.credit_limit} onChange={(event) => setForm({ ...form, credit_limit: event.target.value })} />
               </div>
               <div className="space-y-2">
@@ -715,6 +753,80 @@ export function CreditCardManagement() {
             <Button onClick={saveCard} disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!paymentStatement}
+        onOpenChange={(open) => {
+          if (!open && !statementActionId) {
+            setPaymentStatement(null)
+            setPaymentAmount("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar pago de tarjeta</DialogTitle>
+            <DialogDescription>
+              Carga el monto realmente pagado. La diferencia queda como deuda o saldo a favor para el proximo resumen.
+            </DialogDescription>
+          </DialogHeader>
+
+          {paymentStatement && (
+            <div className="space-y-4">
+              <div className="rounded-md bg-muted p-3 text-sm">
+                <p className="font-medium">{paymentStatement.credit_card?.name || "Tarjeta"}</p>
+                <p className="text-muted-foreground">
+                  Total a pagar: {formatCurrency(Number(paymentStatement.amount_due || 0), paymentStatement.currency || paymentStatement.credit_card?.currency)}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="paid_amount">Monto pagado</Label>
+                <Input
+                  id="paid_amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={paymentAmount}
+                  onChange={(event) => setPaymentAmount(event.target.value)}
+                />
+              </div>
+
+              <div className="rounded-md border p-3 text-sm">
+                {paymentPreview > 0.009 ? (
+                  <p>Quedara deuda de <span className="font-mono">{formatCurrency(paymentPreview, paymentStatement.currency || paymentStatement.credit_card?.currency)}</span>.</p>
+                ) : paymentPreview < -0.009 ? (
+                  <p>Quedara saldo a favor de <span className="font-mono">{formatCurrency(Math.abs(paymentPreview), paymentStatement.currency || paymentStatement.credit_card?.currency)}</span>.</p>
+                ) : (
+                  <p>El resumen quedara saldado.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!!statementActionId}
+              onClick={() => {
+                setPaymentStatement(null)
+                setPaymentAmount("")
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmPayment}
+              disabled={!!statementActionId || !Number.isFinite(Number(paymentAmount)) || Number(paymentAmount) < 0}
+            >
+              {statementActionId && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirmar
             </Button>
           </DialogFooter>
         </DialogContent>

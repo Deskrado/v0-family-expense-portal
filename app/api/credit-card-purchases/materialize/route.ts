@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { getCreditCardInstallmentDueDate } from "@/lib/credit-card-billing"
+import { getCreditCardInstallmentDueDate, requiresCreditCardPaymentApproval } from "@/lib/credit-card-billing"
 import type { CreditCard, CreditCardPurchase } from "@/lib/types"
 
 type PurchaseWithRelations = CreditCardPurchase & {
@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
         const dueDate = getCreditCardInstallmentDueDate(purchase.start_date, purchase.credit_card, index)
         if (dueDate < startDate || dueDate > endDate) continue
         if (existingKeys.has(`${purchase.id}:${installmentNumber}`)) continue
+        const requiresApproval = requiresCreditCardPaymentApproval(dueDate)
 
         inserts.push({
           user_id: user.id,
@@ -84,9 +85,9 @@ export async function POST(request: NextRequest) {
           credit_card_id: purchase.credit_card_id,
           credit_card_purchase_id: purchase.id,
           installment_number: installmentNumber,
-          status: "approved",
-          approved_at: new Date().toISOString(),
-          approved_by: user.id,
+          status: requiresApproval ? "pending" : "approved",
+          approved_at: requiresApproval ? null : new Date().toISOString(),
+          approved_by: requiresApproval ? null : user.id,
           notes: purchase.notes,
           metadata: {
             source: "credit_card_installment",

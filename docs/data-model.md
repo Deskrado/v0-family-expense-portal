@@ -26,6 +26,7 @@ El esquema actual mantiene compatibilidad con la UI existente usando `user_id` e
 
 - `credit_cards`: tarjetas, limite, cierre, vencimiento, moneda y estado.
 - `credit_card_purchases`: compras en cuotas activas. La UI proyecta cuotas futuras desde `start_date`, `installment_amount` y `total_installments`.
+- `credit_card_statements`: resumen mensual por tarjeta desde junio 2026, con monto previsto, saldo anterior, monto pagado y saldo a arrastrar como deuda o saldo a favor.
 
 ## Inversiones
 
