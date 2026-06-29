@@ -120,6 +120,15 @@ function isTransactionBeforeOrInMonth(transaction: Transaction, year: number, mo
   return transactionYear < year || (transactionYear === year && transactionMonth <= month)
 }
 
+function getStatementTransactionKind(transaction: Transaction) {
+  if (transaction.metadata?.source === "credit_card_statement_payment_adjustment") return "Ajuste"
+  if (transaction.is_recurring) return "Débito automático"
+  if (transaction.credit_card_purchase_id) {
+    return transaction.installment_number ? `Cuota ${transaction.installment_number}` : "Compra en cuotas"
+  }
+  return "Transacción manual"
+}
+
 export function CreditCardManagement() {
   const { selectedMonth, selectedYear } = useDashboard()
   const statementMonth = selectedMonth
@@ -183,6 +192,20 @@ export function CreditCardManagement() {
       (a.credit_card?.name || "").localeCompare(b.credit_card?.name || "") ||
       a.description.localeCompare(b.description),
     )
+
+    if (consumptionCardFilter === "all") return rows
+    return rows.filter((transaction) => transaction.credit_card_id === consumptionCardFilter)
+  }, [consumptionCardFilter, statementMonth, statementYear, statementTransactions])
+
+  const statementConsumptions = useMemo(() => {
+    const rows = (statementTransactions || [])
+      .filter((transaction) =>
+        transaction.status !== "rejected" && isTransactionInMonth(transaction, statementYear, statementMonth),
+      )
+      .sort((left, right) =>
+        right.transaction_date.localeCompare(left.transaction_date) ||
+        new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime(),
+      )
 
     if (consumptionCardFilter === "all") return rows
     return rows.filter((transaction) => transaction.credit_card_id === consumptionCardFilter)
@@ -506,6 +529,93 @@ export function CreditCardManagement() {
           </Card>
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>Consumos incluidos en los resúmenes</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Cuotas, débitos y transacciones manuales que forman el previsto del período seleccionado.
+              </p>
+            </div>
+            <Select value={consumptionCardFilter} onValueChange={setConsumptionCardFilter}>
+              <SelectTrigger className="w-full sm:w-72">
+                <SelectValue placeholder="Filtrar por tarjeta" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las tarjetas</SelectItem>
+                {(cards || []).map((card) => (
+                  <SelectItem key={card.id} value={card.id} textValue={`${card.name} ${card.brand || ""} ${card.last_four || ""}`}>
+                    <CreditCardSelectLabel card={card} />
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!statementTransactions ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : statementConsumptions.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              {consumptionCardFilter === "all"
+                ? "No hay consumos incluidos en los resúmenes de este período"
+                : "No hay consumos para esta tarjeta en el período seleccionado"}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Descripción</TableHead>
+                    <TableHead>Tarjeta</TableHead>
+                    <TableHead>Origen</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="text-right">Previsto</TableHead>
+                    <TableHead className="w-10"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {statementConsumptions.map((transaction) => (
+                    <TableRow key={transaction.id}>
+                      <TableCell className="whitespace-nowrap">
+                        {(dateOnlyToLocalDate(transaction.transaction_date) || new Date(transaction.transaction_date)).toLocaleDateString("es-AR")}
+                      </TableCell>
+                      <TableCell className="font-medium">{transaction.description}</TableCell>
+                      <TableCell>
+                        {transaction.credit_card ? <CreditCardSelectLabel card={transaction.credit_card} /> : "-"}
+                      </TableCell>
+                      <TableCell>{getStatementTransactionKind(transaction)}</TableCell>
+                      <TableCell>
+                        <Badge variant={transaction.status === "pending" ? "outline" : "secondary"}>
+                          {transaction.status === "pending" ? "Pendiente" : "Aprobado"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatCurrency(
+                          Number(transaction.budgeted_amount ?? transaction.amount ?? 0),
+                          transaction.currency || transaction.credit_card?.currency,
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="icon" asChild>
+                          <Link href={`/dashboard/gastos/${transaction.id}`}>
+                            <Pencil className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
