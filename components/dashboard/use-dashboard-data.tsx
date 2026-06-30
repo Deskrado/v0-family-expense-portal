@@ -35,6 +35,7 @@ import {
 
 const supabase = createClient()
 const generatedRecurringExpensePeriods = new Set<string>()
+const generatedRecurringIncomePeriods = new Set<string>()
 const materializedCreditCardPurchasePeriods = new Set<string>()
 
 type FamilyVisibilityData = {
@@ -320,12 +321,18 @@ export function useMonthlyTransactions() {
   useEffect(() => {
     if (!key) return
     const periodKey = `${selectedYear}-${selectedMonth}`
-    if (generatedRecurringExpensePeriods.has(periodKey) && materializedCreditCardPurchasePeriods.has(periodKey)) return
+    if (
+      generatedRecurringExpensePeriods.has(periodKey) &&
+      generatedRecurringIncomePeriods.has(periodKey) &&
+      materializedCreditCardPurchasePeriods.has(periodKey)
+    ) return
 
     generatedRecurringExpensePeriods.add(periodKey)
+    generatedRecurringIncomePeriods.add(periodKey)
     materializedCreditCardPurchasePeriods.add(periodKey)
     Promise.all([
       postJson("/api/recurring-expenses/generate", { year: selectedYear, month: selectedMonth }),
+      postJson("/api/recurring-incomes/generate", { year: selectedYear, month: selectedMonth }),
       postJson("/api/credit-card-purchases/materialize", { year: selectedYear, month: selectedMonth }),
     ])
       .then((responses) => {
@@ -336,6 +343,7 @@ export function useMonthlyTransactions() {
       })
       .catch(() => {
         generatedRecurringExpensePeriods.delete(periodKey)
+        generatedRecurringIncomePeriods.delete(periodKey)
         materializedCreditCardPurchasePeriods.delete(periodKey)
       })
   }, [visibilityScope, selectedMonth, selectedYear])
