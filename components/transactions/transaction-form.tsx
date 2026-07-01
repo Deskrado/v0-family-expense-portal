@@ -207,6 +207,30 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
       const transactionAmount = shouldCreateInstallments ? Number(data.amount) / installments : Number(data.amount)
       const budgetedAmount = data.budgeted_amount || transactionAmount
 
+      if (shouldCreateRecurringExpense) {
+        let duplicateQuery = supabase
+          .from("transactions")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("type", type)
+          .eq("is_recurring", true)
+          .is("archived_at", null)
+          .ilike("description", data.description.trim())
+          .eq("amount", transactionAmount)
+          .gte("transaction_date", data.transaction_date)
+          .limit(1)
+        duplicateQuery = data.payment_method
+          ? duplicateQuery.eq("payment_method", data.payment_method)
+          : duplicateQuery.is("payment_method", null)
+
+        const { data: existingRecurring, error: existingRecurringError } = await duplicateQuery
+        if (existingRecurringError) throw existingRecurringError
+        if (existingRecurring && existingRecurring.length > 0) {
+          setError("Ya existe un gasto recurrente activo con esta descripción y monto. Editá el existente en lugar de crear uno nuevo.")
+          return
+        }
+      }
+
       if (shouldCreateInstallments) {
         const { data: purchase, error: purchaseError } = await supabase
           .from("credit_card_purchases")
