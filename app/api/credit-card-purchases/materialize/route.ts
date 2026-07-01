@@ -48,9 +48,6 @@ export async function POST(request: NextRequest) {
         .from("transactions")
         .select("credit_card_purchase_id, installment_number")
         .in("credit_card_purchase_id", purchaseIds)
-        .gte("transaction_date", startDate)
-        .lte("transaction_date", endDate)
-        .is("archived_at", null)
 
       if (existingError) throw existingError
 

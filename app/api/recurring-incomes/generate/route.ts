@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
         .select("id")
         .eq("recurring_template_id", template.id)
         .eq("transaction_date", transactionDate)
-        .is("archived_at", null)
+        .limit(1)
         .maybeSingle()
 
       if (existingError) throw existingError

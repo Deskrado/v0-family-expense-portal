@@ -21,6 +21,7 @@ type RecurringExpenseRow = {
   status: "pending" | "approved" | "rejected" | null
   notes: string | null
   metadata: Record<string, unknown> | null
+  archived_at: string | null
 }
 
 function clampDay(year: number, month: number, day: number) {
@@ -100,7 +101,6 @@ export async function POST(request: NextRequest) {
       .select("*")
       .eq("user_id", user.id)
       .eq("type", "expense")
-      .is("archived_at", null)
       .lte("transaction_date", endDate)
       .order("transaction_date", { ascending: true })
 
@@ -115,6 +115,7 @@ export async function POST(request: NextRequest) {
 
     const latestBeforeTarget = new Map<string, RecurringExpenseRow>()
     for (const transaction of rows) {
+      if (transaction.archived_at) continue
       if (!transaction.is_recurring) continue
       if (transaction.status === "rejected") continue
       if (transaction.payment_method === "credit") continue

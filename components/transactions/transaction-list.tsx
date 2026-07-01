@@ -151,10 +151,16 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
 
     try {
       const supabase = createClient()
-      const { error } = await supabase
-        .from("transactions")
-        .delete()
-        .eq("id", deleteId)
+      const transaction = transactions.find((item) => item.id === deleteId)
+      const shouldKeepDeletionMarker = Boolean(
+        transaction?.credit_card_purchase_id ||
+        transaction?.recurring_template_id ||
+        transaction?.is_recurring,
+      )
+      const query = supabase.from("transactions")
+      const { error } = shouldKeepDeletionMarker
+        ? await query.update({ archived_at: new Date().toISOString() }).eq("id", deleteId)
+        : await query.delete().eq("id", deleteId)
 
       if (error) throw error
 
@@ -171,7 +177,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
   }
 
   const requestApproval = (transaction: Transaction) => {
-    if (transaction.type === "expense" && transaction.is_recurring) {
+    if (transaction.is_recurring) {
       setApprovalTransaction(transaction)
       setApprovalAmount(String(transaction.amount))
       setError(null)
@@ -185,7 +191,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
     if (!approvalTransaction) return
     const parsedAmount = Number(approvalAmount)
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      setError("Ingresá un monto válido para aprobar el gasto")
+      setError("Ingresá un monto válido para aprobar el movimiento")
       return
     }
 
@@ -556,7 +562,9 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Aprobar gasto recurrente</DialogTitle>
+            <DialogTitle>
+              Aprobar {approvalTransaction?.type === "income" ? "ingreso" : "gasto"} recurrente
+            </DialogTitle>
             <DialogDescription>
               Confirmá si el importe se mantiene o cargá el valor real de este mes. El cambio se guarda solo en esta ocurrencia.
             </DialogDescription>
