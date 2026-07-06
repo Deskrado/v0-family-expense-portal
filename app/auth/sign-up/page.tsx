@@ -30,13 +30,13 @@ export default function SignUpPage() {
     setError(null)
 
     if (password !== repeatPassword) {
-      setError('Las contrasenas no coinciden')
+      setError('Las contraseñas no coinciden')
       setIsLoading(false)
       return
     }
 
     if (password.length < 6) {
-      setError('La contrasena debe tener al menos 6 caracteres')
+      setError('La contraseña debe tener al menos 6 caracteres')
       setIsLoading(false)
       return
     }
@@ -71,7 +71,7 @@ export default function SignUpPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">Crear Cuenta</CardTitle>
-              <CardDescription>Registrate para comenzar</CardDescription>
+              <CardDescription>Regístrate para comenzar</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSignUp}>
@@ -88,7 +88,7 @@ export default function SignUpPage() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="password">Contrasena</Label>
+                    <Label htmlFor="password">Contraseña</Label>
                     <Input
                       id="password"
                       type="password"
@@ -98,7 +98,7 @@ export default function SignUpPage() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="repeat-password">Repetir Contrasena</Label>
+                    <Label htmlFor="repeat-password">Repetir Contraseña</Label>
                     <Input
                       id="repeat-password"
                       type="password"
@@ -113,12 +113,12 @@ export default function SignUpPage() {
                   </Button>
                 </div>
                 <div className="mt-4 text-center text-sm">
-                  Ya tienes cuenta?{' '}
+                  ¿Ya tienes cuenta?{' '}
                   <Link
                     href="/auth/login"
                     className="underline underline-offset-4 hover:text-primary"
                   >
-                    Iniciar sesion
+                    Iniciar sesión
                   </Link>
                 </div>
               </form>

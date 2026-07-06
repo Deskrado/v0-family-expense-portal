@@ -8,9 +8,9 @@ export default function AuthErrorPage() {
       <div className="w-full max-w-sm">
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl text-center text-destructive">Error de autenticacion</CardTitle>
+            <CardTitle className="text-2xl text-center text-destructive">Error de autenticación</CardTitle>
             <CardDescription className="text-center">
-              Ocurrio un error al procesar tu solicitud.
+              Ocurrió un error al procesar tu solicitud.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">

@@ -10,7 +10,7 @@ export default function SignUpSuccessPage() {
           <CardHeader>
             <CardTitle className="text-2xl text-center">Revisa tu email</CardTitle>
             <CardDescription className="text-center">
-              Te enviamos un enlace de confirmacion a tu correo electronico.
+              Te enviamos un enlace de confirmación a tu correo electrónico.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">

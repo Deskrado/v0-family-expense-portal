@@ -32,6 +32,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Activity, Link2, Loader2, RefreshCw, ShieldCheck, Unlink } from "lucide-react"
 import { mutate } from "swr"
+import { invalidateCaches } from "@/lib/swr-cache"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type Message = { type: "success" | "error"; text: string } | null
 
@@ -83,6 +94,7 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
   const [environment, setEnvironment] = useState<"sandbox" | "production">("sandbox")
   const [action, setAction] = useState<string | null>(null)
   const [message, setMessage] = useState<Message>(null)
+  const [disconnectingConnectionId, setDisconnectingConnectionId] = useState<string | null>(null)
 
   const latestSnapshot = snapshots?.[0] || null
   const latestFxQuotes = useMemo(() => {
@@ -99,9 +111,7 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
   const isSettings = variant === "settings"
 
   const refreshBrokerData = () => {
-    brokerKeys.forEach((brokerKey) => {
-      mutate((key) => key === brokerKey || (Array.isArray(key) && key[0] === brokerKey))
-    })
+    invalidateCaches([...brokerKeys])
   }
 
   const connectIol = async (connection?: BrokerConnection) => {
@@ -144,8 +154,9 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
     }
   }
 
-  const disconnectIol = async (connectionId: string) => {
-    if (!window.confirm("Desconectar esta integracion IOL?")) return
+  const handleDisconnectIol = async () => {
+    if (!disconnectingConnectionId) return
+    const connectionId = disconnectingConnectionId
     setAction(`disconnect-${connectionId}`)
     setMessage(null)
     try {
@@ -156,6 +167,7 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Error al desconectar IOL" })
     } finally {
       setAction(null)
+      setDisconnectingConnectionId(null)
     }
   }
 
@@ -435,7 +447,7 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
                             </Button>
                             <Button
                               variant="outline"
-                              onClick={() => disconnectIol(connection.id)}
+                              onClick={() => setDisconnectingConnectionId(connection.id)}
                               disabled={connection.status === "disabled" || action === `disconnect-${connection.id}`}
                             >
                               {action === `disconnect-${connection.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Unlink className="mr-2 h-4 w-4" />}
@@ -452,6 +464,28 @@ export function PortfolioIntegrations({ variant = "portfolio" }: { variant?: "po
           </div>
         </TabsContent>}
       </Tabs>
+
+      <AlertDialog open={!!disconnectingConnectionId} onOpenChange={() => setDisconnectingConnectionId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desconectar integración</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Desconectar esta integración IOL? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={action === `disconnect-${disconnectingConnectionId}`}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDisconnectIol}
+              disabled={action === `disconnect-${disconnectingConnectionId}`}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {action === `disconnect-${disconnectingConnectionId}` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Desconectar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

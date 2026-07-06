@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
-import { mutate } from "swr"
+import { invalidateCaches } from "@/lib/swr-cache"
 import { createClient } from "@/lib/supabase/client"
 import { useDashboard } from "@/components/dashboard/dashboard-context"
 import {
@@ -14,8 +14,8 @@ import {
   useUserSettings,
 } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
-import { dateOnlyToLocalDate, getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
-import { getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
+import { getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
+import { formatDateOnlyForDisplay, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
 import type { CreditCard, CreditCardStatement, Transaction } from "@/lib/types"
 import {
   CARD_BRANDS,
@@ -259,7 +259,14 @@ export function CreditCardManagement() {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("No estas autenticado")
+      if (!user) throw new Error("No estás autenticado")
+
+      if (!form.name.trim()) throw new Error("El nombre de la tarjeta es requerido")
+      if (form.credit_limit && Number(form.credit_limit) < 0) throw new Error("El límite no puede ser negativo")
+      const closingDay = form.closing_day ? Number(form.closing_day) : null
+      if (closingDay !== null && (closingDay < 1 || closingDay > 31)) throw new Error("El día de cierre debe estar entre 1 y 31")
+      const dueDay = form.due_day ? Number(form.due_day) : null
+      if (dueDay !== null && (dueDay < 1 || dueDay > 31)) throw new Error("El día de vencimiento debe estar entre 1 y 31")
 
       const payload = {
         user_id: user.id,
@@ -267,8 +274,8 @@ export function CreditCardManagement() {
         brand: form.brand === "__none" ? null : form.brand,
         last_four: form.last_four.trim() || null,
         credit_limit: form.credit_limit ? Number(form.credit_limit) : null,
-        closing_day: form.closing_day ? Number(form.closing_day) : null,
-        due_day: form.due_day ? Number(form.due_day) : null,
+        closing_day: closingDay,
+        due_day: dueDay,
         currency_id: form.currency_id || null,
         is_active: form.is_active,
       }
@@ -279,9 +286,7 @@ export function CreditCardManagement() {
 
       if (result.error) throw result.error
 
-      mutate((key) => key === "credit-cards" || (Array.isArray(key) && key[0] === "credit-cards"))
-      mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
-      mutate((key) => Array.isArray(key) && key[0] === "credit-card-statements")
+      invalidateCaches(["credit-cards", "credit-card-purchases", "credit-card-statements"])
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la tarjeta")
@@ -301,9 +306,7 @@ export function CreditCardManagement() {
       setError(updateError.message)
       return
     }
-    mutate((key) => key === "credit-cards" || (Array.isArray(key) && key[0] === "credit-cards"))
-    mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
-    mutate((key) => Array.isArray(key) && key[0] === "credit-card-statements")
+    invalidateCaches(["credit-cards", "credit-card-purchases", "credit-card-statements"])
   }
 
   const openPaymentDialog = (statement: CreditCardStatement) => {
@@ -337,10 +340,7 @@ export function CreditCardManagement() {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || "Error al confirmar el pago")
 
-      mutate((key) =>
-        Array.isArray(key) &&
-        ["credit-card-statements", "credit-card-statement-transactions", "transactions"].includes(String(key[0])),
-      )
+      invalidateCaches(["credit-card-statements", "credit-card-statement-transactions", "transactions"])
       setPaymentStatement(null)
       setPaymentAmount("")
     } catch (err) {
@@ -400,66 +400,114 @@ export function CreditCardManagement() {
           ) : visibleCards.length === 0 ? (
             <div className="py-8 text-center text-muted-foreground">No hay tarjetas registradas</div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Tarjeta</TableHead>
-                    <TableHead>Marca</TableHead>
-                    <TableHead className="text-right">Limite</TableHead>
-                    <TableHead>Cierre</TableHead>
-                    <TableHead>Vencimiento</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead className="w-10"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleCards.map((card) => (
-                    <TableRow key={card.id}>
-                      <TableCell className="font-medium">
-                        {card.name}
-                        {card.last_four && <span className="ml-2 text-muted-foreground">**** {card.last_four}</span>}
-                      </TableCell>
-                      <TableCell>
+            <>
+              <div className="space-y-3 md:hidden">
+                {visibleCards.map((card) => (
+                  <div key={card.id} className="rounded-md border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <CardBrandMark brand={card.brand} />
-                          <span>{getCardBrandLabel(card.brand)}</span>
+                          <p className="min-w-0 truncate font-medium">
+                            {card.name}
+                            {card.last_four && <span className="ml-2 text-muted-foreground">**** {card.last_four}</span>}
+                          </p>
                         </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Cierre día {card.closing_day || "-"} · Vencimiento día {card.due_day || "-"}
+                        </p>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label="Más acciones de tarjeta">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openEditDialog(card)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setCardActive(card, !card.is_active)}>
+                            <XCircle className="mr-2 h-4 w-4" />
+                            {card.is_active ? "Desactivar" : "Activar"}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <Badge variant={card.is_active ? "secondary" : "outline"}>
+                        {card.is_active ? "Activa" : "Inactiva"}
+                      </Badge>
+                      <span className="font-mono text-sm">
                         {card.credit_limit ? formatCurrency(Number(card.credit_limit), card.currency) : "-"}
-                      </TableCell>
-                      <TableCell>{card.closing_day ? `Dia ${card.closing_day}` : "-"}</TableCell>
-                      <TableCell>{card.due_day ? `Dia ${card.due_day}` : "-"}</TableCell>
-                      <TableCell>
-                        <Badge variant={card.is_active ? "secondary" : "outline"}>
-                          {card.is_active ? "Activa" : "Inactiva"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => openEditDialog(card)}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setCardActive(card, !card.is_active)}>
-                              <XCircle className="mr-2 h-4 w-4" />
-                              {card.is_active ? "Desactivar" : "Activar"}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tarjeta</TableHead>
+                      <TableHead>Marca</TableHead>
+                      <TableHead className="text-right">Limite</TableHead>
+                      <TableHead>Cierre</TableHead>
+                      <TableHead>Vencimiento</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="w-10"></TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {visibleCards.map((card) => (
+                      <TableRow key={card.id}>
+                        <TableCell className="font-medium">
+                          {card.name}
+                          {card.last_four && <span className="ml-2 text-muted-foreground">**** {card.last_four}</span>}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <CardBrandMark brand={card.brand} />
+                            <span>{getCardBrandLabel(card.brand)}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {card.credit_limit ? formatCurrency(Number(card.credit_limit), card.currency) : "-"}
+                        </TableCell>
+                        <TableCell>{card.closing_day ? `Dia ${card.closing_day}` : "-"}</TableCell>
+                        <TableCell>{card.due_day ? `Dia ${card.due_day}` : "-"}</TableCell>
+                        <TableCell>
+                          <Badge variant={card.is_active ? "secondary" : "outline"}>
+                            {card.is_active ? "Activa" : "Inactiva"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" aria-label="Más acciones de tarjeta">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEditDialog(card)}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setCardActive(card, !card.is_active)}>
+                                <XCircle className="mr-2 h-4 w-4" />
+                                {card.is_active ? "Desactivar" : "Activar"}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -583,7 +631,7 @@ export function CreditCardManagement() {
                   {statementConsumptions.map((transaction) => (
                     <TableRow key={transaction.id}>
                       <TableCell className="whitespace-nowrap">
-                        {(dateOnlyToLocalDate(transaction.transaction_date) || new Date(transaction.transaction_date)).toLocaleDateString("es-AR")}
+                        {formatDateOnlyForDisplay(transaction.transaction_date)}
                       </TableCell>
                       <TableCell className="font-medium">{transaction.description}</TableCell>
                       <TableCell>
@@ -646,58 +694,102 @@ export function CreditCardManagement() {
               {consumptionCardFilter === "all" ? "No hay compras en cuotas activas" : "No hay compras en cuotas para esta tarjeta"}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Compra</TableHead>
-                    <TableHead>Tarjeta</TableHead>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Primer vencimiento</TableHead>
-                    <TableHead>Cuotas</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Cuota</TableHead>
-                    <TableHead className="w-10"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredPurchases.map((purchase) => (
-                    <TableRow key={purchase.id}>
-                      <TableCell className="font-medium">{purchase.description}</TableCell>
-                      <TableCell>{purchase.credit_card ? <CreditCardSelectLabel card={purchase.credit_card} /> : "-"}</TableCell>
-                      <TableCell>{(dateOnlyToLocalDate(purchase.start_date) || new Date(purchase.start_date)).toLocaleDateString("es-AR")}</TableCell>
-                      <TableCell>
-                        {(dateOnlyToLocalDate(getCreditCardStatementDueDate(purchase.start_date, purchase.credit_card)) || new Date(purchase.start_date)).toLocaleDateString("es-AR")}
-                      </TableCell>
-                      <TableCell>{purchase.current_installment}/{purchase.total_installments}</TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatCurrency(Number(purchase.total_amount), purchase.credit_card?.currency)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatCurrency(Number(purchase.installment_amount), purchase.credit_card?.currency)}
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/tarjetas/compra/${purchase.id}`}>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Editar
-                              </Link>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+            <>
+              <div className="space-y-3 md:hidden">
+                {filteredPurchases.map((purchase) => (
+                  <div key={purchase.id} className="rounded-md border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="min-w-0 truncate font-medium">{purchase.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {purchase.credit_card ? <CreditCardSelectLabel card={purchase.credit_card} /> : "-"}
+                        </p>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label="Más acciones de compra">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem asChild>
+                            <Link href={`/dashboard/tarjetas/compra/${purchase.id}`}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Editar
+                            </Link>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>{formatDateOnlyForDisplay(purchase.start_date)}</span>
+                      <Badge variant="outline">{purchase.current_installment}/{purchase.total_installments} cuotas</Badge>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <span className="text-xs text-muted-foreground">
+                        Total {formatCurrency(Number(purchase.total_amount), purchase.credit_card?.currency)}
+                      </span>
+                      <span className="font-mono text-sm font-semibold">
+                        {formatCurrency(Number(purchase.installment_amount), purchase.credit_card?.currency)}/cuota
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Compra</TableHead>
+                      <TableHead>Tarjeta</TableHead>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Primer vencimiento</TableHead>
+                      <TableHead>Cuotas</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-right">Cuota</TableHead>
+                      <TableHead className="w-10"></TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredPurchases.map((purchase) => (
+                      <TableRow key={purchase.id}>
+                        <TableCell className="font-medium">{purchase.description}</TableCell>
+                        <TableCell>{purchase.credit_card ? <CreditCardSelectLabel card={purchase.credit_card} /> : "-"}</TableCell>
+                        <TableCell>{formatDateOnlyForDisplay(purchase.start_date)}</TableCell>
+                        <TableCell>
+                          {formatDateOnlyForDisplay(getCreditCardStatementDueDate(purchase.start_date, purchase.credit_card))}
+                        </TableCell>
+                        <TableCell>{purchase.current_installment}/{purchase.total_installments}</TableCell>
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(Number(purchase.total_amount), purchase.credit_card?.currency)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(Number(purchase.installment_amount), purchase.credit_card?.currency)}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" aria-label="Más acciones de compra">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link href={`/dashboard/tarjetas/compra/${purchase.id}`}>
+                                  <Pencil className="mr-2 h-4 w-4" />
+                                  Editar
+                                </Link>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -731,39 +823,21 @@ export function CreditCardManagement() {
               {consumptionCardFilter === "all" ? "No hay debitos automaticos activos" : "No hay debitos automaticos para esta tarjeta"}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Servicio</TableHead>
-                  <TableHead>Tarjeta</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Impacto</TableHead>
-                  <TableHead className="text-right">Monto</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="w-10"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <div className="space-y-3 md:hidden">
                 {recurringCardDebits.map((transaction) => (
-                  <TableRow key={transaction.id}>
-                    <TableCell className="font-medium">{transaction.description}</TableCell>
-                    <TableCell>{transaction.credit_card ? <CreditCardSelectLabel card={transaction.credit_card} /> : "-"}</TableCell>
-                    <TableCell>{transaction.category?.name || "-"}</TableCell>
-                    <TableCell>
-                      {(dateOnlyToLocalDate(transaction.transaction_date) || new Date(transaction.transaction_date)).toLocaleDateString("es-AR")}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatCurrency(Number(transaction.budgeted_amount || transaction.amount || 0), transaction.currency)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={transaction.status === "pending" ? "outline" : "secondary"}>
-                        {transaction.status === "pending" ? "Pendiente" : "Activo"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
+                  <div key={transaction.id} className="rounded-md border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="min-w-0 truncate font-medium">{transaction.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {transaction.credit_card ? <CreditCardSelectLabel card={transaction.credit_card} /> : "-"}
+                          {transaction.category?.name ? ` · ${transaction.category.name}` : ""}
+                        </p>
+                      </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
+                          <Button variant="ghost" size="icon" aria-label="Más acciones de consumo">
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -776,11 +850,72 @@ export function CreditCardManagement() {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <Badge variant={transaction.status === "pending" ? "outline" : "secondary"}>
+                        {transaction.status === "pending" ? "Pendiente" : "Activo"}
+                      </Badge>
+                      <span className="font-mono text-sm">
+                        {formatCurrency(Number(transaction.budgeted_amount || transaction.amount || 0), transaction.currency)}
+                      </span>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Servicio</TableHead>
+                      <TableHead>Tarjeta</TableHead>
+                      <TableHead>Categoria</TableHead>
+                      <TableHead>Impacto</TableHead>
+                      <TableHead className="text-right">Monto</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="w-10"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recurringCardDebits.map((transaction) => (
+                      <TableRow key={transaction.id}>
+                        <TableCell className="font-medium">{transaction.description}</TableCell>
+                        <TableCell>{transaction.credit_card ? <CreditCardSelectLabel card={transaction.credit_card} /> : "-"}</TableCell>
+                        <TableCell>{transaction.category?.name || "-"}</TableCell>
+                        <TableCell>
+                          {formatDateOnlyForDisplay(transaction.transaction_date)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(Number(transaction.budgeted_amount || transaction.amount || 0), transaction.currency)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={transaction.status === "pending" ? "outline" : "secondary"}>
+                            {transaction.status === "pending" ? "Pendiente" : "Activo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" aria-label="Más acciones de consumo">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link href={`/dashboard/transacciones/${transaction.id}`}>
+                                  <Pencil className="mr-2 h-4 w-4" />
+                                  Editar
+                                </Link>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

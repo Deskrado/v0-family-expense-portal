@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-
-function toDateOnly(year: number, month: number, day: number) {
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-}
+import { getMonthBounds, toDateOnly } from "@/lib/date-only"
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,6 +30,7 @@ export async function POST(request: NextRequest) {
 
     let created = 0
     let skipped = 0
+    const { start: monthStart, end: monthEnd } = getMonthBounds(year, month)
 
     for (const template of templates || []) {
       const transactionDate = toDateOnly(year, month, Number(template.day_of_month))
@@ -41,11 +39,16 @@ export async function POST(request: NextRequest) {
         continue
       }
 
+      // Match by month window rather than the exact computed date, so editing a
+      // template's day_of_month after a transaction was already generated for
+      // the period doesn't produce a duplicate (same fix already applied to
+      // recurring expense generation).
       const { data: existing, error: existingError } = await supabase
         .from("transactions")
         .select("id")
         .eq("recurring_template_id", template.id)
-        .eq("transaction_date", transactionDate)
+        .gte("transaction_date", monthStart)
+        .lte("transaction_date", monthEnd)
         .limit(1)
         .maybeSingle()
 

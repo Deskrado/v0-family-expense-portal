@@ -1,4 +1,5 @@
 import type { CreditCard } from "@/lib/types"
+import { toDateOnly as formatDateOnly } from "@/lib/date-only"
 
 type CreditCardBillingConfig = Pick<CreditCard, "closing_day" | "due_day"> | null | undefined
 export const CREDIT_CARD_PAYMENT_APPROVAL_START_DATE = "2026-06-01"
@@ -15,15 +16,6 @@ function parseDateOnly(value: string) {
   return { year, month, day }
 }
 
-function formatDateOnly(year: number, month: number, day: number) {
-  return [year, String(month).padStart(2, "0"), String(day).padStart(2, "0")].join("-")
-}
-
-function clampDay(year: number, month: number, day: number) {
-  const lastDay = new Date(year, month, 0).getDate()
-  return Math.min(day, lastDay)
-}
-
 export function addMonthsToDateOnly(value: string, monthsToAdd: number) {
   const parsed = parseDateOnly(value)
   if (!parsed) return value
@@ -31,9 +23,8 @@ export function addMonthsToDateOnly(value: string, monthsToAdd: number) {
   const target = new Date(parsed.year, parsed.month - 1 + monthsToAdd, 1)
   const year = target.getFullYear()
   const month = target.getMonth() + 1
-  const day = clampDay(year, month, parsed.day)
 
-  return formatDateOnly(year, month, day)
+  return formatDateOnly(year, month, parsed.day)
 }
 
 export function getCreditCardStatementDueDate(purchaseDate: string, card: CreditCardBillingConfig) {
@@ -55,9 +46,8 @@ export function getCreditCardStatementDueDate(purchaseDate: string, card: Credit
   const target = new Date(parsed.year, parsed.month - 1 + monthsToDue, 1)
   const year = target.getFullYear()
   const month = target.getMonth() + 1
-  const day = clampDay(year, month, dueDay)
 
-  return formatDateOnly(year, month, day)
+  return formatDateOnly(year, month, dueDay)
 }
 
 export function getCreditCardInstallmentDueDate(

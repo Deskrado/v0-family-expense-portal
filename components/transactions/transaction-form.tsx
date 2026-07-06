@@ -30,7 +30,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
-import { mutate } from "swr"
+import { invalidateCache, invalidateCacheByPrefix } from "@/lib/swr-cache"
 
 const transactionSchema = z.object({
   description: z.string().min(1, "La descripción es requerida"),
@@ -340,12 +340,9 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
       }
 
       // Revalidate data
-      mutate((key) => {
-        const keyName = Array.isArray(key) ? key[0] : key
-        return typeof keyName === "string" && keyName.startsWith("transactions")
-      })
-      mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
-      
+      invalidateCacheByPrefix("transactions")
+      invalidateCache("credit-card-purchases")
+
       router.push(redirectUrl || "/dashboard")
       router.refresh()
     } catch (err) {

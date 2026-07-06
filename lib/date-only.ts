@@ -18,3 +18,19 @@ export function dateOnlyToLocalDate(value: string | null | undefined) {
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
   return new Date(year, month - 1, day)
 }
+
+export function getLastDayOfMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate()
+}
+
+export function clampDayOfMonth(year: number, month: number, day: number) {
+  return Math.min(Math.max(day, 1), getLastDayOfMonth(year, month))
+}
+
+export function toDateOnly(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(clampDayOfMonth(year, month, day)).padStart(2, "0")}`
+}
+
+export function getMonthBounds(year: number, month: number) {
+  return { start: toDateOnly(year, month, 1), end: toDateOnly(year, month, 31) }
+}

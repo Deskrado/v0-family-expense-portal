@@ -1,6 +1,5 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,9 +23,7 @@ interface HeaderProps {
 export function Header({ email, currentMonth, currentYear, onMonthYearChange }: HeaderProps) {
   const router = useRouter()
 
-  const handleSignOut = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
+  const handleSignOut = () => {
     window.location.href = '/auth/logout'
   }
 

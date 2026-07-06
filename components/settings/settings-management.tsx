@@ -22,7 +22,17 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Loader2, Pencil, Save, Trash2, X } from "lucide-react"
-import { mutate } from "swr"
+import { invalidateCache, invalidateCacheByPrefix } from "@/lib/swr-cache"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type SettingsForm = {
   default_currency_id: string
@@ -68,6 +78,22 @@ type MemberEditForm = {
   display_name: string
   email: string
   role: "admin" | "member" | "viewer"
+}
+
+type InviteForm = {
+  email: string
+  fullName: string
+  password: string
+  role: string
+  cloneFromMemberId: string
+}
+
+const defaultInviteForm: InviteForm = {
+  email: "",
+  fullName: "",
+  password: "",
+  role: "member",
+  cloneFromMemberId: "__none",
 }
 
 const defaultSettingsForm: SettingsForm = {
@@ -124,11 +150,7 @@ export function SettingsManagement() {
   const [profileForm, setProfileForm] = useState<ProfileForm>(defaultProfileForm)
   const [settingsForm, setSettingsForm] = useState<SettingsForm>(defaultSettingsForm)
   const [familyForm, setFamilyForm] = useState<FamilyForm>(defaultFamilyForm)
-  const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteFullName, setInviteFullName] = useState("")
-  const [invitePassword, setInvitePassword] = useState("")
-  const [inviteRole, setInviteRole] = useState("member")
-  const [inviteCloneFromMemberId, setInviteCloneFromMemberId] = useState("__none")
+  const [inviteForm, setInviteForm] = useState<InviteForm>(defaultInviteForm)
   const [selectedMemberId, setSelectedMemberId] = useState("")
   const [editingMemberId, setEditingMemberId] = useState("")
   const [memberEditForm, setMemberEditForm] = useState<MemberEditForm>({ display_name: "", email: "", role: "member" })
@@ -136,6 +158,7 @@ export function SettingsManagement() {
   const [permissionsForm, setPermissionsForm] = useState<PermissionsForm>(defaultPermissionsForm)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [removingMember, setRemovingMember] = useState<FamilyMember | null>(null)
 
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
   const activeMembership = familyMembers.find((member) => member.is_active) || null
@@ -287,7 +310,7 @@ export function SettingsManagement() {
     setMessage(null)
 
     try {
-      if (!userId) throw new Error("No estas autenticado")
+      if (!userId) throw new Error("No estás autenticado")
 
       const { data, error } = await supabase
         .from("profiles")
@@ -316,7 +339,7 @@ export function SettingsManagement() {
     setMessage(null)
 
     try {
-      if (!userId) throw new Error("No estas autenticado")
+      if (!userId) throw new Error("No estás autenticado")
 
       const monthlyTarget = Number(settingsForm.monthly_savings_target)
       const annualTarget = Number(settingsForm.annual_savings_target)
@@ -326,10 +349,10 @@ export function SettingsManagement() {
       const weekStartsOn = Number(settingsForm.week_starts_on)
 
       if (monthlyTarget < 0 || annualTarget < 0) throw new Error("Las metas de ahorro no pueden ser negativas")
-      if (monthsAhead < 1 || monthsAhead > 24) throw new Error("La proyeccion debe estar entre 1 y 24 meses")
-      if (cardDueDays < 0 || cardDueDays > 31) throw new Error("Los dias de aviso de tarjeta deben estar entre 0 y 31")
+      if (monthsAhead < 1 || monthsAhead > 24) throw new Error("La proyección debe estar entre 1 y 24 meses")
+      if (cardDueDays < 0 || cardDueDays > 31) throw new Error("Los días de aviso de tarjeta deben estar entre 0 y 31")
       if (budgetThreshold < 0 || budgetThreshold > 100) throw new Error("El umbral de presupuesto debe estar entre 0 y 100")
-      if (weekStartsOn < 0 || weekStartsOn > 6) throw new Error("El inicio de semana no es valido")
+      if (weekStartsOn < 0 || weekStartsOn > 6) throw new Error("El inicio de semana no es válido")
 
       const { error } = await supabase
         .from("user_settings")
@@ -354,7 +377,7 @@ export function SettingsManagement() {
         }, { onConflict: "user_id" })
 
       if (error) throw error
-      mutate((key) => key === "user-settings" || (Array.isArray(key) && key[0] === "user-settings"))
+      invalidateCache("user-settings")
       setMessage("Preferencias guardadas")
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Error al guardar preferencias")
@@ -368,10 +391,10 @@ export function SettingsManagement() {
     setMessage(null)
 
     try {
-      if (!userId) throw new Error("No estas autenticado")
+      if (!userId) throw new Error("No estás autenticado")
       if (!familyForm.name.trim()) throw new Error("El nombre del hogar es requerido")
       const monthStartDay = Number(familyForm.month_start_day)
-      if (monthStartDay < 1 || monthStartDay > 28) throw new Error("El dia de inicio mensual debe estar entre 1 y 28")
+      if (monthStartDay < 1 || monthStartDay > 28) throw new Error("El día de inicio mensual debe estar entre 1 y 28")
       let savedFamilyId = familyForm.id
 
       if (familyForm.id) {
@@ -440,24 +463,20 @@ export function SettingsManagement() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           familyId: activeFamilyId,
-          email: inviteEmail,
-          fullName: inviteFullName,
-          password: invitePassword,
-          role: inviteRole,
-          cloneFromMemberId: inviteCloneFromMemberId === "__none" ? undefined : inviteCloneFromMemberId,
+          email: inviteForm.email,
+          fullName: inviteForm.fullName,
+          password: inviteForm.password,
+          role: inviteForm.role,
+          cloneFromMemberId: inviteForm.cloneFromMemberId === "__none" ? undefined : inviteForm.cloneFromMemberId,
         }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || "Error al agregar miembro")
 
-      setInviteEmail("")
-      setInviteFullName("")
-      setInvitePassword("")
-      setInviteRole("member")
-      setInviteCloneFromMemberId("__none")
+      setInviteForm(defaultInviteForm)
       await reloadFamilyMembers()
       await reloadActiveFamilyAccess()
-      mutate((key) => key === "family-visibility" || (Array.isArray(key) && key[0] === "family-visibility"))
+      invalidateCache("family-visibility")
       setMessage("Miembro agregado")
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Error al agregar miembro")
@@ -504,7 +523,7 @@ export function SettingsManagement() {
       cancelEditMember()
       await reloadFamilyMembers()
       await reloadActiveFamilyAccess()
-      mutate((key) => key === "family-visibility" || (Array.isArray(key) && key[0] === "family-visibility"))
+      invalidateCache("family-visibility")
       setMessage("Miembro actualizado")
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Error al editar miembro")
@@ -513,8 +532,9 @@ export function SettingsManagement() {
     }
   }
 
-  const removeFamilyMember = async (member: FamilyMember) => {
-    if (!window.confirm(`Quitar a ${member.display_name || member.email || "este miembro"} del hogar?`)) return
+  const handleRemoveFamilyMember = async () => {
+    if (!removingMember) return
+    const member = removingMember
     setIsSubmitting(true)
     setMessage(null)
 
@@ -533,12 +553,13 @@ export function SettingsManagement() {
       if (editingMemberId === member.id) cancelEditMember()
       await reloadFamilyMembers()
       await reloadActiveFamilyAccess()
-      mutate((key) => key === "family-visibility" || (Array.isArray(key) && key[0] === "family-visibility"))
+      invalidateCache("family-visibility")
       setMessage("Miembro quitado del hogar")
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Error al quitar miembro")
     } finally {
       setIsSubmitting(false)
+      setRemovingMember(null)
     }
   }
 
@@ -591,8 +612,8 @@ export function SettingsManagement() {
 
       if (error) throw error
       await reloadActiveFamilyAccess()
-      mutate((key) => key === "family-visibility" || (Array.isArray(key) && key[0] === "family-visibility"))
-      mutate((key) => (typeof key === "string" && key.startsWith("transactions")) || (Array.isArray(key) && typeof key[0] === "string" && key[0].startsWith("transactions")))
+      invalidateCache("family-visibility")
+      invalidateCacheByPrefix("transactions")
       setMessage("Permisos guardados")
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Error al guardar permisos")
@@ -908,7 +929,7 @@ export function SettingsManagement() {
                                   type="button"
                                   size="icon-sm"
                                   variant="ghost"
-                                  onClick={() => removeFamilyMember(member)}
+                                  onClick={() => setRemovingMember(member)}
                                   disabled={isSubmitting || member.user_id === userId}
                                   title="Quitar miembro"
                                   className="text-destructive hover:text-destructive"
@@ -927,15 +948,26 @@ export function SettingsManagement() {
                 {canManageFamily && activeFamilyId && (
                   <div className="space-y-3 rounded-md border p-3">
                     <p className="text-sm font-medium">Registrar y agregar usuario</p>
-                    <Input placeholder="Nombre completo" value={inviteFullName} onChange={(event) => setInviteFullName(event.target.value)} />
-                    <Input placeholder="email@dominio.com" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} />
+                    <Input
+                      placeholder="Nombre completo"
+                      value={inviteForm.fullName}
+                      onChange={(event) => setInviteForm((current) => ({ ...current, fullName: event.target.value }))}
+                    />
+                    <Input
+                      placeholder="email@dominio.com"
+                      value={inviteForm.email}
+                      onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))}
+                    />
                     <Input
                       type="password"
                       placeholder="Contraseña inicial"
-                      value={invitePassword}
-                      onChange={(event) => setInvitePassword(event.target.value)}
+                      value={inviteForm.password}
+                      onChange={(event) => setInviteForm((current) => ({ ...current, password: event.target.value }))}
                     />
-                    <Select value={inviteRole} onValueChange={setInviteRole}>
+                    <Select
+                      value={inviteForm.role}
+                      onValueChange={(value) => setInviteForm((current) => ({ ...current, role: value }))}
+                    >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="admin">Admin</SelectItem>
@@ -944,11 +976,14 @@ export function SettingsManagement() {
                       </SelectContent>
                     </Select>
                     <Select
-                      value={inviteCloneFromMemberId}
+                      value={inviteForm.cloneFromMemberId}
                       onValueChange={(value) => {
-                        setInviteCloneFromMemberId(value)
                         const sourceMember = activeFamilyMembers.find((member) => member.id === value)
-                        if (sourceMember && sourceMember.role !== "owner") setInviteRole(sourceMember.role)
+                        setInviteForm((current) => ({
+                          ...current,
+                          cloneFromMemberId: value,
+                          role: sourceMember && sourceMember.role !== "owner" ? sourceMember.role : current.role,
+                        }))
                       }}
                     >
                       <SelectTrigger>
@@ -1235,6 +1270,28 @@ export function SettingsManagement() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <AlertDialog open={!!removingMember} onOpenChange={() => setRemovingMember(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Quitar miembro del hogar</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Quitar a {removingMember?.display_name || removingMember?.email || "este miembro"} del hogar? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSubmitting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleRemoveFamilyMember}
+              disabled={isSubmitting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Quitar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

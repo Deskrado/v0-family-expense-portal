@@ -21,7 +21,7 @@ import { formatDateOnlyForDisplay, getCreditCardInstallmentDueDate, getCreditCar
 import type { CreditCardPurchase } from "@/lib/types"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
-import { mutate } from "swr"
+import { invalidateCache, invalidateCacheByPrefix } from "@/lib/swr-cache"
 
 type CreditCardPurchaseFormProps = {
   initialData?: CreditCardPurchase
@@ -184,8 +184,8 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
         if (deleteExtraError) throw deleteExtraError
       }
 
-      mutate((key) => key === "credit-card-purchases" || (Array.isArray(key) && key[0] === "credit-card-purchases"))
-      mutate((key) => typeof key === "string" && key.startsWith("transactions"))
+      invalidateCache("credit-card-purchases")
+      invalidateCacheByPrefix("transactions")
       router.push("/dashboard/tarjetas")
       router.refresh()
     } catch (err) {

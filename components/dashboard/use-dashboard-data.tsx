@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/client"
 import { useEffect } from "react"
 import useSWR, { mutate } from "swr"
+import { invalidateCaches } from "@/lib/swr-cache"
 import { useDashboard } from "./dashboard-context"
 import type {
   Transaction,
@@ -275,9 +276,7 @@ export function useCreditCardStatements(year: number, month: number) {
     ])
       .then((responses) => {
         if (responses.some((response) => Number(response.created || 0) > 0)) {
-          mutate((cacheKey) => Array.isArray(cacheKey) && cacheKey[0] === "credit-card-statements")
-          mutate((cacheKey) => Array.isArray(cacheKey) && cacheKey[0] === "credit-card-purchases")
-          mutate((cacheKey) => Array.isArray(cacheKey) && cacheKey[0] === "credit-card-statement-transactions")
+          invalidateCaches(["credit-card-statements", "credit-card-purchases", "credit-card-statement-transactions"])
         }
       })
       .catch(() => {

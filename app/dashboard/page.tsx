@@ -23,6 +23,7 @@ import {
 } from "@/components/dashboard/use-dashboard-data"
 import { useDashboard } from "@/components/dashboard/dashboard-context"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Plus } from "lucide-react"
 import Link from "next/link"
 import type { GroupSummary } from "@/lib/types"
@@ -136,58 +137,75 @@ export default function DashboardPage() {
         </Button>
       </div>
 
-      {/* Summary Cards */}
-      <SummaryCards
-        initialBalance={monthInitialBalance}
-        finalBalance={cashBalance}
-        totalIncome={summary.totalIncome}
-        totalExpenses={summary.totalExpenses}
-        budgetedIncome={summary.budgetedIncome}
-        budgetedExpenses={summary.budgetedExpenses}
-        savings={summary.savings}
-        currency={currency}
-        wealth={wealthBreakdown}
-        showInvestments={canViewInvestments}
-      />
+      {isLoading ? (
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={index} className="h-28 w-full rounded-lg" />
+            ))}
+          </div>
+          <Skeleton className="h-24 w-full rounded-lg" />
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Skeleton className="h-64 w-full rounded-lg" />
+            <Skeleton className="h-64 w-full rounded-lg" />
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Summary Cards */}
+          <SummaryCards
+            initialBalance={monthInitialBalance}
+            finalBalance={cashBalance}
+            totalIncome={summary.totalIncome}
+            totalExpenses={summary.totalExpenses}
+            budgetedIncome={summary.budgetedIncome}
+            budgetedExpenses={summary.budgetedExpenses}
+            savings={summary.savings}
+            currency={currency}
+            wealth={wealthBreakdown}
+            showInvestments={canViewInvestments}
+          />
 
-      <PaymentMethodBreakdown transactions={monthlyTransactions || []} currency={currency} />
+          <PaymentMethodBreakdown transactions={monthlyTransactions || []} currency={currency} />
 
-      {/* Expense/Income Tables */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ExpenseIncomeTable
-          type="expense"
-          expenseGroups={Object.values(expensesByGroup)}
-          incomeGroups={Object.values(incomeByCategory)}
-          currency={currency}
-        />
-        <ExpenseIncomeTable
-          type="income"
-          expenseGroups={Object.values(expensesByGroup)}
-          incomeGroups={Object.values(incomeByCategory)}
-          currency={currency}
-        />
-      </div>
+          {/* Expense/Income Tables */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ExpenseIncomeTable
+              type="expense"
+              expenseGroups={Object.values(expensesByGroup)}
+              incomeGroups={Object.values(incomeByCategory)}
+              currency={currency}
+            />
+            <ExpenseIncomeTable
+              type="income"
+              expenseGroups={Object.values(expensesByGroup)}
+              incomeGroups={Object.values(incomeByCategory)}
+              currency={currency}
+            />
+          </div>
 
-      {/* Annual Projection */}
-      <AnnualProjectionChart
-        data={monthlyData}
-        currentMonth={selectedMonth}
-        currentYear={selectedYear}
-        currency={currency}
-      />
+          {/* Annual Projection */}
+          <AnnualProjectionChart
+            data={monthlyData}
+            currentMonth={selectedMonth}
+            currentYear={selectedYear}
+            currency={currency}
+          />
 
-      {/* Savings Overview */}
-      <SavingsOverview
-        data={{
-          currentMonth: summary.savings,
-          previousMonth: previousMonthSavings,
-          monthlyTarget: settings?.monthly_savings_target || 0,
-          yearToDate: yearToDateSavings,
-          yearTarget: settings?.annual_savings_target || 0,
-        }}
-        currency={currency}
-        wealth={wealthBreakdown}
-      />
+          {/* Savings Overview */}
+          <SavingsOverview
+            data={{
+              currentMonth: summary.savings,
+              previousMonth: previousMonthSavings,
+              monthlyTarget: settings?.monthly_savings_target || 0,
+              yearToDate: yearToDateSavings,
+              yearTarget: settings?.annual_savings_target || 0,
+            }}
+            currency={currency}
+            wealth={wealthBreakdown}
+          />
+        </>
+      )}
     </div>
   )
 }

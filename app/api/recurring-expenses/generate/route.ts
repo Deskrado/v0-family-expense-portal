@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { getMonthBounds, toDateOnly } from "@/lib/date-only"
 
 type RecurringExpenseRow = {
   id: string
@@ -24,26 +25,9 @@ type RecurringExpenseRow = {
   archived_at: string | null
 }
 
-function clampDay(year: number, month: number, day: number) {
-  const lastDay = new Date(year, month, 0).getDate()
-  return Math.min(Math.max(day, 1), lastDay)
-}
-
-function toDateOnly(year: number, month: number, day: number) {
-  return `${year}-${String(month).padStart(2, "0")}-${String(clampDay(year, month, day)).padStart(2, "0")}`
-}
-
 function getDayFromDateOnly(value: string) {
   const day = Number(value.slice(8, 10))
   return Number.isFinite(day) && day > 0 ? day : 1
-}
-
-function getMonthStart(year: number, month: number) {
-  return toDateOnly(year, month, 1)
-}
-
-function getMonthEnd(year: number, month: number) {
-  return toDateOnly(year, month, 31)
 }
 
 function getRecurringKey(transaction: RecurringExpenseRow) {
@@ -93,8 +77,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Periodo inválido" }, { status: 400 })
     }
 
-    const startDate = getMonthStart(year, month)
-    const endDate = getMonthEnd(year, month)
+    const { start: startDate, end: endDate } = getMonthBounds(year, month)
 
     const { data: expenses, error: expensesError } = await supabase
       .from("transactions")

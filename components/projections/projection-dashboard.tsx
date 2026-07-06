@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { mutate } from "swr"
+import { invalidateCaches } from "@/lib/swr-cache"
 import { AnnualProjectionChart } from "@/components/dashboard/annual-projection-chart"
 import { useDashboard } from "@/components/dashboard/dashboard-context"
 import {
@@ -45,7 +45,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { formatCurrency, getMonthName } from "@/lib/currency"
+import { formatCompactCurrency, formatCurrency, getMonthName } from "@/lib/currency"
 import { buildAnnualProjection, getProjectionAlerts } from "@/lib/projection-engine"
 import { getWealthBreakdown } from "@/lib/wealth-summary"
 import type { ProjectionScenario, ProjectionScenarioItem } from "@/lib/types"
@@ -60,6 +60,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type ScenarioForm = {
   name: string
@@ -144,13 +154,6 @@ async function fetchJson(path: string, options?: RequestInit) {
   return payload
 }
 
-function compactValue(value: number) {
-  const absoluteValue = Math.abs(value)
-  if (absoluteValue >= 1000000) return `${(value / 1000000).toFixed(1)}M`
-  if (absoluteValue >= 1000) return `${(value / 1000).toFixed(0)}K`
-  return value.toString()
-}
-
 function scenarioItemLabel(item: ProjectionScenarioItem) {
   const start = `${getMonthName(item.start_month, true)} ${item.start_year}`
   if (item.frequency === "one_time") return `Único · ${start}`
@@ -176,6 +179,8 @@ export function ProjectionDashboard() {
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [deletingScenario, setDeletingScenario] = useState<ProjectionScenario | null>(null)
+  const [isDeletingScenario, setIsDeletingScenario] = useState(false)
 
   useEffect(() => {
     const projectionEnd = addMonths(selectedYear, selectedMonth, 11)
@@ -267,7 +272,7 @@ export function ProjectionDashboard() {
   )
 
   const refreshProjectionData = () => {
-    mutate((key) => Array.isArray(key) && (key[0] === "projection-scenarios" || key[0] === "monthly-closures"))
+    invalidateCaches(["projection-scenarios", "monthly-closures"])
   }
 
   const resetItemForm = () => {
@@ -406,8 +411,10 @@ export function ProjectionDashboard() {
     }
   }
 
-  const deleteScenario = async (scenario: ProjectionScenario) => {
-    if (!window.confirm(`Eliminar el escenario "${scenario.name}"?`)) return
+  const handleDeleteScenario = async () => {
+    if (!deletingScenario) return
+    const scenario = deletingScenario
+    setIsDeletingScenario(true)
     setError(null)
     try {
       await fetchJson(`/api/projection-scenarios/${scenario.id}`, { method: "DELETE" })
@@ -416,6 +423,9 @@ export function ProjectionDashboard() {
       refreshProjectionData()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al eliminar escenario")
+    } finally {
+      setIsDeletingScenario(false)
+      setDeletingScenario(null)
     }
   }
 
@@ -703,7 +713,7 @@ export function ProjectionDashboard() {
                     <Button type="button" size="sm" variant={scenario.is_active ? "secondary" : "outline"} onClick={() => toggleScenario(scenario)}>
                       {scenario.is_active ? "Activo" : "Inactivo"}
                     </Button>
-                    <Button type="button" size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => deleteScenario(scenario)}>
+                    <Button type="button" size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeletingScenario(scenario)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -896,7 +906,7 @@ export function ProjectionDashboard() {
               <LineChart data={chartData} margin={{ top: 12, right: 24, left: 12, bottom: 6 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                <YAxis tickFormatter={compactValue} tick={{ fontSize: 12 }} className="text-muted-foreground" width={54} />
+                <YAxis tickFormatter={(value) => formatCompactCurrency(Number(value), currency)} tick={{ fontSize: 12 }} className="text-muted-foreground" width={54} />
                 <ChartTooltip formatter={(value) => formatCurrency(Number(value), currency)} labelFormatter={(label) => `Mes: ${label}`} />
                 <Legend wrapperStyle={{ paddingTop: 8 }} />
                 <Line type="linear" dataKey="baseExpenses" name="Gasto base" stroke="#dc2626" strokeWidth={4} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
@@ -906,6 +916,28 @@ export function ProjectionDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deletingScenario} onOpenChange={() => setDeletingScenario(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar escenario</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Eliminar el escenario "{deletingScenario?.name}"? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingScenario}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteScenario}
+              disabled={isDeletingScenario}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingScenario && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

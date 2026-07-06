@@ -40,7 +40,17 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { FolderOpen, Loader2, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react"
-import { mutate } from "swr"
+import { invalidateCache, invalidateCaches, invalidateCacheByPrefix } from "@/lib/swr-cache"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type CategoryFormState = {
   name: string
@@ -110,6 +120,10 @@ export function CategoriesGroupsManagement() {
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null)
+  const [isDeletingCategory, setIsDeletingCategory] = useState(false)
+  const [deletingGroup, setDeletingGroup] = useState<Group | null>(null)
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false)
   const activeFamilyId = visibility?.membership?.family_id || null
 
   const visibleCategories = useMemo(() => {
@@ -166,7 +180,7 @@ export function CategoriesGroupsManagement() {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("No estas autenticado")
+      if (!user) throw new Error("No estás autenticado")
 
       const payload = {
         user_id: user.id,
@@ -187,11 +201,8 @@ export function CategoriesGroupsManagement() {
 
       if (result.error) throw result.error
 
-      mutate((key) => key === "categories" || (Array.isArray(key) && key[0] === "categories"))
-      mutate((key) => {
-        const keyName = Array.isArray(key) ? key[0] : key
-        return typeof keyName === "string" && keyName.startsWith("transactions")
-      })
+      invalidateCache("categories")
+      invalidateCacheByPrefix("transactions")
       setCategoryDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la categoria")
@@ -212,7 +223,7 @@ export function CategoriesGroupsManagement() {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("No estas autenticado")
+      if (!user) throw new Error("No estás autenticado")
 
       const payload = {
         user_id: user.id,
@@ -228,12 +239,8 @@ export function CategoriesGroupsManagement() {
 
       if (result.error) throw result.error
 
-      mutate((key) => key === "groups" || (Array.isArray(key) && key[0] === "groups"))
-      mutate((key) => key === "categories" || (Array.isArray(key) && key[0] === "categories"))
-      mutate((key) => {
-        const keyName = Array.isArray(key) ? key[0] : key
-        return typeof keyName === "string" && keyName.startsWith("transactions")
-      })
+      invalidateCaches(["groups", "categories"])
+      invalidateCacheByPrefix("transactions")
       setGroupDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar el grupo")
@@ -242,35 +249,40 @@ export function CategoriesGroupsManagement() {
     }
   }
 
-  const deleteCategory = async (category: Category) => {
-    if (!window.confirm(`Eliminar la categoria "${category.name}"?`)) return
-    const supabase = createClient()
-    const { error: deleteError } = await supabase.from("categories").delete().eq("id", category.id)
-    if (deleteError) {
-      setError(deleteError.message)
-      return
+  const handleDeleteCategory = async () => {
+    if (!deletingCategory) return
+    setIsDeletingCategory(true)
+    try {
+      const supabase = createClient()
+      const { error: deleteError } = await supabase.from("categories").delete().eq("id", deletingCategory.id)
+      if (deleteError) {
+        setError(deleteError.message)
+        return
+      }
+      invalidateCache("categories")
+      invalidateCacheByPrefix("transactions")
+    } finally {
+      setIsDeletingCategory(false)
+      setDeletingCategory(null)
     }
-    mutate((key) => key === "categories" || (Array.isArray(key) && key[0] === "categories"))
-    mutate((key) => {
-        const keyName = Array.isArray(key) ? key[0] : key
-        return typeof keyName === "string" && keyName.startsWith("transactions")
-      })
   }
 
-  const deleteGroup = async (group: Group) => {
-    if (!window.confirm(`Eliminar el grupo "${group.name}"?`)) return
-    const supabase = createClient()
-    const { error: deleteError } = await supabase.from("groups").delete().eq("id", group.id)
-    if (deleteError) {
-      setError(deleteError.message)
-      return
+  const handleDeleteGroup = async () => {
+    if (!deletingGroup) return
+    setIsDeletingGroup(true)
+    try {
+      const supabase = createClient()
+      const { error: deleteError } = await supabase.from("groups").delete().eq("id", deletingGroup.id)
+      if (deleteError) {
+        setError(deleteError.message)
+        return
+      }
+      invalidateCaches(["groups", "categories"])
+      invalidateCacheByPrefix("transactions")
+    } finally {
+      setIsDeletingGroup(false)
+      setDeletingGroup(null)
     }
-    mutate((key) => key === "groups" || (Array.isArray(key) && key[0] === "groups"))
-    mutate((key) => key === "categories" || (Array.isArray(key) && key[0] === "categories"))
-    mutate((key) => {
-        const keyName = Array.isArray(key) ? key[0] : key
-        return typeof keyName === "string" && keyName.startsWith("transactions")
-      })
   }
 
   const parentCandidates = (categories || []).filter(
@@ -354,7 +366,7 @@ export function CategoriesGroupsManagement() {
                           <TableCell>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon">
+                                <Button variant="ghost" size="icon" aria-label="Más acciones de categoría">
                                   <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
@@ -363,7 +375,7 @@ export function CategoriesGroupsManagement() {
                                   <Pencil className="mr-2 h-4 w-4" />
                                   Editar
                                 </DropdownMenuItem>
-                                <DropdownMenuItem className="text-destructive" onClick={() => deleteCategory(category)}>
+                                <DropdownMenuItem className="text-destructive" onClick={() => setDeletingCategory(category)}>
                                   <Trash2 className="mr-2 h-4 w-4" />
                                   Eliminar
                                 </DropdownMenuItem>
@@ -425,7 +437,7 @@ export function CategoriesGroupsManagement() {
                           <TableCell>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon">
+                                <Button variant="ghost" size="icon" aria-label="Más acciones de grupo">
                                   <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
@@ -434,7 +446,7 @@ export function CategoriesGroupsManagement() {
                                   <Pencil className="mr-2 h-4 w-4" />
                                   Editar
                                 </DropdownMenuItem>
-                                <DropdownMenuItem className="text-destructive" onClick={() => deleteGroup(group)}>
+                                <DropdownMenuItem className="text-destructive" onClick={() => setDeletingGroup(group)}>
                                   <Trash2 className="mr-2 h-4 w-4" />
                                   Eliminar
                                 </DropdownMenuItem>
@@ -609,6 +621,50 @@ export function CategoriesGroupsManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deletingCategory} onOpenChange={() => setDeletingCategory(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar categoría</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Eliminar la categoría "{deletingCategory?.name}"? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingCategory}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteCategory}
+              disabled={isDeletingCategory}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingCategory && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deletingGroup} onOpenChange={() => setDeletingGroup(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar grupo</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Eliminar el grupo "{deletingGroup?.name}"? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingGroup}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteGroup}
+              disabled={isDeletingGroup}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingGroup && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

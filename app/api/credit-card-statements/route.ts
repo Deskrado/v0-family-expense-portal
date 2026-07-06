@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { toDateOnly } from "@/lib/date-only"
 import type { CreditCard, CreditCardStatement, Transaction } from "@/lib/types"
 
 type CardWithCurrency = CreditCard & {
@@ -8,11 +9,6 @@ type CardWithCurrency = CreditCard & {
 
 type StatementWithRelations = CreditCardStatement & {
   credit_card?: CardWithCurrency | null
-}
-
-function toDateOnly(year: number, month: number, day: number) {
-  const lastDay = new Date(year, month, 0).getDate()
-  return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`
 }
 
 function getPeriodIndex(year: number, month: number) {

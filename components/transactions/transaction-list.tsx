@@ -33,7 +33,7 @@ import { CheckCircle2, MoreHorizontal, Pencil, Trash2, Search, Plus, Loader2, XC
 import Link from "next/link"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import { mutate } from "swr"
+import { invalidateCacheByPrefix } from "@/lib/swr-cache"
 import { dateOnlyToLocalDate } from "@/lib/date-only"
 import {
   AlertDialog,
@@ -144,6 +144,13 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
       return rightDate - leftDate
     })
 
+  const deleteTarget = transactions.find((item) => item.id === deleteId) || null
+  const willArchiveOnDelete = Boolean(
+    deleteTarget?.credit_card_purchase_id ||
+    deleteTarget?.recurring_template_id ||
+    deleteTarget?.is_recurring,
+  )
+
   const handleDelete = async () => {
     if (!deleteId) return
     setIsDeleting(true)
@@ -151,23 +158,14 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
 
     try {
       const supabase = createClient()
-      const transaction = transactions.find((item) => item.id === deleteId)
-      const shouldKeepDeletionMarker = Boolean(
-        transaction?.credit_card_purchase_id ||
-        transaction?.recurring_template_id ||
-        transaction?.is_recurring,
-      )
       const query = supabase.from("transactions")
-      const { error } = shouldKeepDeletionMarker
+      const { error } = willArchiveOnDelete
         ? await query.update({ archived_at: new Date().toISOString() }).eq("id", deleteId)
         : await query.delete().eq("id", deleteId)
 
       if (error) throw error
 
-      mutate((key) => {
-        const keyName = Array.isArray(key) ? key[0] : key
-        return typeof keyName === "string" && keyName.startsWith("transactions")
-      })
+      invalidateCacheByPrefix("transactions")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al eliminar la transaccion")
     } finally {
@@ -240,10 +238,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
         .eq("id", transaction.id)
 
       if (error) throw error
-      mutate((key) => {
-        const keyName = Array.isArray(key) ? key[0] : key
-        return typeof keyName === "string" && keyName.startsWith("transactions")
-      })
+      invalidateCacheByPrefix("transactions")
       if (status === "approved") {
         setApprovalTransaction(null)
         setApprovalAmount("")
@@ -256,6 +251,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
   }
 
   const title = type === "expense" ? "Gastos" : type === "income" ? "Ingresos" : "Transacciones"
+  const registeredSuffix = type === "all" ? "registradas" : "registrados"
   const newUrl = type === "expense"
     ? "/dashboard/gastos/nuevo"
     : type === "income"
@@ -275,7 +271,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" aria-label="Más acciones de transacción">
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -411,7 +407,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
             </div>
           ) : filteredTransactions.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {hasActiveFilters ? "No se encontraron resultados con los filtros aplicados" : `No hay ${title.toLowerCase()} registrados`}
+              {hasActiveFilters ? "No se encontraron resultados con los filtros aplicados" : `No hay ${title.toLowerCase()} ${registeredSuffix}`}
             </div>
           ) : (
             <>
@@ -629,7 +625,9 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar {type === "expense" ? "gasto" : "ingreso"}</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará permanentemente este registro.
+              {willArchiveOnDelete
+                ? "Este registro forma parte de una serie recurrente o de cuotas de tarjeta, por lo que se archivará en lugar de eliminarse: dejará de verse en los listados pero seguirá conservado en el sistema."
+                : "Esta acción no se puede deshacer. Se eliminará permanentemente este registro."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

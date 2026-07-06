@@ -50,7 +50,17 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Loader2, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react"
-import { mutate } from "swr"
+import { invalidateCache } from "@/lib/swr-cache"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type GoalForm = {
   name: string
@@ -99,6 +109,8 @@ export function SavingsManagement() {
   const [form, setForm] = useState<GoalForm>(emptyForm)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [deletingGoal, setDeletingGoal] = useState<SavingsGoal | null>(null)
+  const [isDeletingGoal, setIsDeletingGoal] = useState(false)
 
   const defaultCurrency = settings?.default_currency || currencies?.find((currency) => currency.code === "ARS") || currencies?.[0] || null
   const defaultCurrencyId = settings?.default_currency_id || defaultCurrency?.id || ""
@@ -143,22 +155,20 @@ export function SavingsManagement() {
   }
 
   const saveGoal = async () => {
-    if (!form.name.trim() || Number(form.target_amount) <= 0 || Number(form.current_amount) < 0) {
-      setError("Completa nombre, meta y monto actual")
-      return
-    }
-    if (form.monthly_target && Number(form.monthly_target) < 0) {
-      setError("La meta mensual no puede ser negativa")
-      return
-    }
-
     setIsSubmitting(true)
     setError(null)
 
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("No estas autenticado")
+      if (!user) throw new Error("No estás autenticado")
+
+      if (!form.name.trim() || Number(form.target_amount) <= 0 || Number(form.current_amount) < 0) {
+        throw new Error("Completa nombre, meta y monto actual")
+      }
+      if (form.monthly_target && Number(form.monthly_target) < 0) {
+        throw new Error("La meta mensual no puede ser negativa")
+      }
 
       const payload = {
         user_id: user.id,
@@ -176,7 +186,7 @@ export function SavingsManagement() {
         : await supabase.from("savings_goals").insert(payload)
 
       if (result.error) throw result.error
-      mutate((key) => key === "savings-goals" || (Array.isArray(key) && key[0] === "savings-goals"))
+      invalidateCache("savings-goals")
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la meta")
@@ -185,15 +195,21 @@ export function SavingsManagement() {
     }
   }
 
-  const deleteGoal = async (goal: SavingsGoal) => {
-    if (!window.confirm(`Eliminar la meta "${goal.name}"?`)) return
-    const supabase = createClient()
-    const { error: deleteError } = await supabase.from("savings_goals").delete().eq("id", goal.id)
-    if (deleteError) {
-      setError(deleteError.message)
-      return
+  const handleDeleteGoal = async () => {
+    if (!deletingGoal) return
+    setIsDeletingGoal(true)
+    try {
+      const supabase = createClient()
+      const { error: deleteError } = await supabase.from("savings_goals").delete().eq("id", deletingGoal.id)
+      if (deleteError) {
+        setError(deleteError.message)
+        return
+      }
+      invalidateCache("savings-goals")
+    } finally {
+      setIsDeletingGoal(false)
+      setDeletingGoal(null)
     }
-    mutate((key) => key === "savings-goals" || (Array.isArray(key) && key[0] === "savings-goals"))
   }
 
   const globalProgress = totals.target > 0 ? Math.min((totals.current / totals.target) * 100, 100) : 0
@@ -303,7 +319,7 @@ export function SavingsManagement() {
                         <TableCell>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
+                              <Button variant="ghost" size="icon" aria-label="Más acciones de meta de ahorro">
                                 <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -312,7 +328,7 @@ export function SavingsManagement() {
                                 <Pencil className="mr-2 h-4 w-4" />
                                 Editar
                               </DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive" onClick={() => deleteGoal(goal)}>
+                              <DropdownMenuItem className="text-destructive" onClick={() => setDeletingGoal(goal)}>
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 Eliminar
                               </DropdownMenuItem>
@@ -381,6 +397,28 @@ export function SavingsManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deletingGoal} onOpenChange={() => setDeletingGoal(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar meta</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Eliminar la meta "{deletingGoal?.name}"? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingGoal}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteGoal}
+              disabled={isDeletingGoal}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingGoal && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

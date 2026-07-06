@@ -35,7 +35,17 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { Loader2, Pencil, Play, Plus, Save, Trash2 } from "lucide-react"
-import { mutate } from "swr"
+import { invalidateCache, invalidateCacheByPrefix } from "@/lib/swr-cache"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type TemplateForm = {
   description: string
@@ -101,6 +111,8 @@ export function RecurringIncomeManagement() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [action, setAction] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [deletingTemplate, setDeletingTemplate] = useState<RecurringIncomeTemplate | null>(null)
+  const [isDeletingTemplate, setIsDeletingTemplate] = useState(false)
 
   const incomeCategories = categories?.filter((category) => category.type === "income") || []
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
@@ -133,7 +145,7 @@ export function RecurringIncomeManagement() {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("No estas autenticado")
+      if (!user) throw new Error("No estás autenticado")
 
       const amount = Number(form.amount)
       const dayOfMonth = Number(form.day_of_month)
@@ -165,7 +177,7 @@ export function RecurringIncomeManagement() {
         : await supabase.from("recurring_income_templates").insert(payload)
 
       if (result.error) throw result.error
-      mutate((key) => key === "recurring-income-templates" || (Array.isArray(key) && key[0] === "recurring-income-templates"))
+      invalidateCache("recurring-income-templates")
       setMessage("Ingreso recurrente guardado")
       resetForm()
     } catch (error) {
@@ -185,11 +197,8 @@ export function RecurringIncomeManagement() {
         month: selectedMonth,
         year: selectedYear,
       })
-      mutate((key) => {
-        const keyName = Array.isArray(key) ? key[0] : key
-        return typeof keyName === "string" && keyName.startsWith("transactions")
-      })
-      mutate((key) => key === "recurring-income-templates" || (Array.isArray(key) && key[0] === "recurring-income-templates"))
+      invalidateCacheByPrefix("transactions")
+      invalidateCache("recurring-income-templates")
       setMessage(`Pendientes generados: ${result.created || 0}. Omitidos: ${result.skipped || 0}.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Error al generar pendientes")
@@ -208,18 +217,24 @@ export function RecurringIncomeManagement() {
       setMessage(error.message)
       return
     }
-    mutate((key) => key === "recurring-income-templates" || (Array.isArray(key) && key[0] === "recurring-income-templates"))
+    invalidateCache("recurring-income-templates")
   }
 
-  const removeTemplate = async (template: RecurringIncomeTemplate) => {
-    if (!window.confirm(`Eliminar "${template.description}"?`)) return
-    const supabase = createClient()
-    const { error } = await supabase.from("recurring_income_templates").delete().eq("id", template.id)
-    if (error) {
-      setMessage(error.message)
-      return
+  const handleRemoveTemplate = async () => {
+    if (!deletingTemplate) return
+    setIsDeletingTemplate(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.from("recurring_income_templates").delete().eq("id", deletingTemplate.id)
+      if (error) {
+        setMessage(error.message)
+        return
+      }
+      invalidateCache("recurring-income-templates")
+    } finally {
+      setIsDeletingTemplate(false)
+      setDeletingTemplate(null)
     }
-    mutate((key) => key === "recurring-income-templates" || (Array.isArray(key) && key[0] === "recurring-income-templates"))
   }
 
   return (
@@ -403,7 +418,7 @@ export function RecurringIncomeManagement() {
                             <Button variant="ghost" size="sm" onClick={() => toggleTemplate(template)}>
                               {template.is_active ? "Pausar" : "Activar"}
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => removeTemplate(template)}>
+                            <Button variant="ghost" size="icon" onClick={() => setDeletingTemplate(template)}>
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </div>
@@ -417,6 +432,28 @@ export function RecurringIncomeManagement() {
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={!!deletingTemplate} onOpenChange={() => setDeletingTemplate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar ingreso recurrente</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Eliminar "{deletingTemplate?.description}"? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingTemplate}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleRemoveTemplate}
+              disabled={isDeletingTemplate}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingTemplate && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

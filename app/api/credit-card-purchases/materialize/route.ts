@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { getCreditCardInstallmentDueDate, requiresCreditCardPaymentApproval } from "@/lib/credit-card-billing"
+import { toDateOnly } from "@/lib/date-only"
 import type { CreditCard, CreditCardPurchase } from "@/lib/types"
 
 type PurchaseWithRelations = CreditCardPurchase & {
   credit_card: CreditCard | null
   category?: { group_id: string | null } | null
-}
-
-function toDateOnly(year: number, month: number, day: number) {
-  const lastDay = new Date(year, month, 0).getDate()
-  return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`
 }
 
 export async function POST(request: NextRequest) {

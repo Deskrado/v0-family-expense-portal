@@ -51,6 +51,17 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react"
 import { mutate } from "swr"
+import { invalidateCache, invalidateCaches } from "@/lib/swr-cache"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type InvestmentForm = {
   name: string
@@ -211,6 +222,8 @@ export function InvestmentsManagement() {
   const [autoRefreshing, setAutoRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
+  const [closingInvestment, setClosingInvestment] = useState<Investment | null>(null)
+  const [isClosingInvestment, setIsClosingInvestment] = useState(false)
   const autoRefreshStarted = useRef(false)
 
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
@@ -356,7 +369,7 @@ export function InvestmentsManagement() {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("No estas autenticado")
+      if (!user) throw new Error("No estás autenticado")
 
       const payload = {
         user_id: user.id,
@@ -377,7 +390,7 @@ export function InvestmentsManagement() {
         : await supabase.from("investments").insert(payload)
 
       if (result.error) throw result.error
-      mutate((key) => key === "investments" || (Array.isArray(key) && key[0] === "investments"))
+      invalidateCache("investments")
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar la inversion")
@@ -386,18 +399,24 @@ export function InvestmentsManagement() {
     }
   }
 
-  const deleteInvestment = async (investment: Investment) => {
-    if (!window.confirm(`Cerrar la inversion "${investment.name}"?`)) return
-    const supabase = createClient()
-    const { error: updateError } = await supabase
-      .from("investments")
-      .update({ is_active: false, end_date: investment.end_date || new Date().toISOString().split("T")[0] })
-      .eq("id", investment.id)
-    if (updateError) {
-      setError(updateError.message)
-      return
+  const handleCloseInvestment = async () => {
+    if (!closingInvestment) return
+    setIsClosingInvestment(true)
+    try {
+      const supabase = createClient()
+      const { error: updateError } = await supabase
+        .from("investments")
+        .update({ is_active: false, end_date: closingInvestment.end_date || new Date().toISOString().split("T")[0] })
+        .eq("id", closingInvestment.id)
+      if (updateError) {
+        setError(updateError.message)
+        return
+      }
+      invalidateCache("investments")
+    } finally {
+      setIsClosingInvestment(false)
+      setClosingInvestment(null)
     }
-    mutate((key) => key === "investments" || (Array.isArray(key) && key[0] === "investments"))
   }
 
   const syncFx = async () => {
@@ -450,9 +469,7 @@ export function InvestmentsManagement() {
           setError(otherError.reason instanceof Error ? otherError.reason.message : "No se pudo actualizar una cotizacion")
         }
         mutate("fx-quotes")
-        mutate((key) => key === "broker-connections" || (Array.isArray(key) && key[0] === "broker-connections"))
-        mutate((key) => key === "broker-positions" || (Array.isArray(key) && key[0] === "broker-positions"))
-        mutate((key) => key === "portfolio-snapshots" || (Array.isArray(key) && key[0] === "portfolio-snapshots"))
+        invalidateCaches(["broker-connections", "broker-positions", "portfolio-snapshots"])
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al actualizar cotizaciones")
       } finally {
@@ -486,9 +503,7 @@ export function InvestmentsManagement() {
       if (rejected?.status === "rejected") throw rejected.reason
 
       mutate("fx-quotes")
-      mutate((key) => key === "broker-connections" || (Array.isArray(key) && key[0] === "broker-connections"))
-      mutate((key) => key === "broker-positions" || (Array.isArray(key) && key[0] === "broker-positions"))
-      mutate((key) => key === "portfolio-snapshots" || (Array.isArray(key) && key[0] === "portfolio-snapshots"))
+      invalidateCaches(["broker-connections", "broker-positions", "portfolio-snapshots"])
       setSyncNotice("IOL actualizado correctamente.")
     } catch (err) {
       if (err instanceof ApiRequestError && err.code === "IOL_REAUTH_REQUIRED") {
@@ -678,7 +693,7 @@ export function InvestmentsManagement() {
                         {row.investment ? (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
+                              <Button variant="ghost" size="icon" aria-label="Más acciones de inversión">
                                 <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -687,7 +702,7 @@ export function InvestmentsManagement() {
                                 <Pencil className="mr-2 h-4 w-4" />
                                 Editar
                               </DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive" onClick={() => deleteInvestment(row.investment!)}>
+                              <DropdownMenuItem className="text-destructive" onClick={() => setClosingInvestment(row.investment!)}>
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 Cerrar
                               </DropdownMenuItem>
@@ -786,6 +801,28 @@ export function InvestmentsManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!closingInvestment} onOpenChange={() => setClosingInvestment(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cerrar inversión</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Cerrar la inversión "{closingInvestment?.name}"? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClosingInvestment}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCloseInvestment}
+              disabled={isClosingInvestment}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isClosingInvestment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Cerrar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
