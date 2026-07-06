@@ -132,6 +132,8 @@ export interface Transaction {
   approved_at?: string | null
   approved_by?: string | null
   recurring_template_id?: string | null
+  recurring_series_id?: string | null
+  recurrence_period?: string | null
   metadata?: Record<string, unknown>
   archived_at?: string | null
   updated_at?: string
@@ -218,7 +220,7 @@ export interface CreditCardPurchase {
   created_at: string
   credit_card?: CreditCard
   category?: Category
-  transactions?: Pick<Transaction, 'id' | 'installment_number'>[]
+  transactions?: Pick<Transaction, 'id' | 'installment_number' | 'transaction_date' | 'archived_at'>[]
 }
 
 export interface CreditCardStatement {

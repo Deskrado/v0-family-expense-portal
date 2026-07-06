@@ -265,23 +265,19 @@ export function useCreditCardStatements(year: number, month: number) {
 
   useEffect(() => {
     if (!visibilityScope) return
-    const periodKey = `${year}-${month}`
-    if (generatedRecurringExpensePeriods.has(periodKey) && materializedCreditCardPurchasePeriods.has(periodKey)) return
+    const periodKey = `${visibilityScope}:${year}-${month}`
+    if (materializedCreditCardPurchasePeriods.has(periodKey)) return
 
-    generatedRecurringExpensePeriods.add(periodKey)
     materializedCreditCardPurchasePeriods.add(periodKey)
-    Promise.all([
-      postJson("/api/recurring-expenses/generate", { year, month }),
-      postJson("/api/credit-card-purchases/materialize", { year, month }),
-    ])
-      .then((responses) => {
-        if (responses.some((response) => Number(response.created || 0) > 0)) {
+    postJson("/api/credit-card-purchases/materialize", { year, month })
+      .then((response) => {
+        if (Number(response.created || 0) > 0) {
           invalidateCaches(["credit-card-statements", "credit-card-purchases", "credit-card-statement-transactions"])
         }
       })
-      .catch(() => {
-        generatedRecurringExpensePeriods.delete(periodKey)
+      .catch((error) => {
         materializedCreditCardPurchasePeriods.delete(periodKey)
+        console.error("No se pudieron materializar las cuotas del período", error)
       })
   }, [visibilityScope, month, year])
 
@@ -319,31 +315,34 @@ export function useMonthlyTransactions() {
 
   useEffect(() => {
     if (!key) return
-    const periodKey = `${selectedYear}-${selectedMonth}`
-    if (
-      generatedRecurringExpensePeriods.has(periodKey) &&
-      generatedRecurringIncomePeriods.has(periodKey) &&
-      materializedCreditCardPurchasePeriods.has(periodKey)
-    ) return
+    const periodKey = `${visibilityScope}:${selectedYear}-${selectedMonth}`
+    const jobs: Array<{ guard: Set<string>; request: ReturnType<typeof postJson> }> = []
+    const payload = { year: selectedYear, month: selectedMonth }
 
-    generatedRecurringExpensePeriods.add(periodKey)
-    generatedRecurringIncomePeriods.add(periodKey)
-    materializedCreditCardPurchasePeriods.add(periodKey)
-    Promise.all([
-      postJson("/api/recurring-expenses/generate", { year: selectedYear, month: selectedMonth }),
-      postJson("/api/recurring-incomes/generate", { year: selectedYear, month: selectedMonth }),
-      postJson("/api/credit-card-purchases/materialize", { year: selectedYear, month: selectedMonth }),
-    ])
+    if (!generatedRecurringExpensePeriods.has(periodKey)) {
+      generatedRecurringExpensePeriods.add(periodKey)
+      jobs.push({ guard: generatedRecurringExpensePeriods, request: postJson("/api/recurring-expenses/generate", payload) })
+    }
+    if (!generatedRecurringIncomePeriods.has(periodKey)) {
+      generatedRecurringIncomePeriods.add(periodKey)
+      jobs.push({ guard: generatedRecurringIncomePeriods, request: postJson("/api/recurring-incomes/generate", payload) })
+    }
+    if (!materializedCreditCardPurchasePeriods.has(periodKey)) {
+      materializedCreditCardPurchasePeriods.add(periodKey)
+      jobs.push({ guard: materializedCreditCardPurchasePeriods, request: postJson("/api/credit-card-purchases/materialize", payload) })
+    }
+    if (jobs.length === 0) return
+
+    Promise.all(jobs.map((job) => job.request))
       .then((responses) => {
         if (responses.some((response) => Number(response.created || 0) > 0)) {
           mutate(key)
           mutate((cacheKey) => Array.isArray(cacheKey) && cacheKey[0] === "credit-card-purchases")
         }
       })
-      .catch(() => {
-        generatedRecurringExpensePeriods.delete(periodKey)
-        generatedRecurringIncomePeriods.delete(periodKey)
-        materializedCreditCardPurchasePeriods.delete(periodKey)
+      .catch((error) => {
+        for (const job of jobs) job.guard.delete(periodKey)
+        console.error("No se pudieron materializar los movimientos del período", error)
       })
   }, [visibilityScope, selectedMonth, selectedYear])
 
@@ -396,7 +395,7 @@ export function useCreditCardPurchases() {
         *,
         credit_card:credit_cards(*, currency:currencies(*)),
         category:categories(*),
-        transactions(id, installment_number)
+        transactions(id, installment_number, transaction_date, archived_at)
       `)
       .eq("is_active", true)
       .order("start_date", { ascending: false })

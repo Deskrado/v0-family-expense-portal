@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { getMonthBounds, toDateOnly } from "@/lib/date-only"
+import { toDateOnly } from "@/lib/date-only"
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
 
     let created = 0
     let skipped = 0
-    const { start: monthStart, end: monthEnd } = getMonthBounds(year, month)
+    const monthStart = toDateOnly(year, month, 1)
 
     for (const template of templates || []) {
       const transactionDate = toDateOnly(year, month, Number(template.day_of_month))
@@ -39,27 +39,10 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      // Match by month window rather than the exact computed date, so editing a
-      // template's day_of_month after a transaction was already generated for
-      // the period doesn't produce a duplicate (same fix already applied to
-      // recurring expense generation).
-      const { data: existing, error: existingError } = await supabase
-        .from("transactions")
-        .select("id")
-        .eq("recurring_template_id", template.id)
-        .gte("transaction_date", monthStart)
-        .lte("transaction_date", monthEnd)
-        .limit(1)
-        .maybeSingle()
-
-      if (existingError) throw existingError
-      if (existing) {
-        skipped += 1
-        continue
-      }
-
-      const { error: insertError } = await supabase.from("transactions").insert({
-        user_id: user.id,
+      // The unique template/period identity makes this safe under concurrent
+      // dashboard loads. Archived rows intentionally remain tombstones.
+      const { data: inserted, error: insertError } = await supabase.from("transactions").upsert({
+        user_id: template.user_id,
         family_id: template.family_id,
         created_by: user.id,
         description: template.description,
@@ -74,15 +57,21 @@ export async function POST(request: NextRequest) {
         payment_method: null,
         status: "pending",
         recurring_template_id: template.id,
+        recurrence_period: monthStart,
         notes: template.notes,
         metadata: {
           source: "recurring_income_template",
           generated_at: new Date().toISOString(),
           generated_for: `${year}-${String(month).padStart(2, "0")}`,
         },
-      })
+      }, { onConflict: "recurring_template_id,recurrence_period", ignoreDuplicates: true }).select("id")
 
       if (insertError) throw insertError
+
+      if (!inserted || inserted.length === 0) {
+        skipped += 1
+        continue
+      }
 
       await supabase
         .from("recurring_income_templates")

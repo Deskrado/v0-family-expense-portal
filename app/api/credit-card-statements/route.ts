@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { toDateOnly } from "@/lib/date-only"
-import type { CreditCard, CreditCardStatement, Transaction } from "@/lib/types"
+import {
+  allocateStatementPayment,
+  calculateStatementBalances,
+  calculateStatementPaymentApplication,
+  CREDIT_CARD_STATEMENT_ADJUSTMENT_SOURCE,
+  getApplicablePreviousBalance,
+  getStatementTransactionAmount,
+  isStatementPaymentAdjustment,
+  roundStatementCurrency,
+} from "@/lib/credit-card-statement-calculations"
+import type { CreditCard, CreditCardStatement } from "@/lib/types"
 
 type CardWithCurrency = CreditCard & {
   currency?: CreditCard["currency"] | null
@@ -11,20 +21,8 @@ type StatementWithRelations = CreditCardStatement & {
   credit_card?: CardWithCurrency | null
 }
 
-function getPeriodIndex(year: number, month: number) {
-  return year * 12 + month
-}
-
 function validatePeriod(year: number, month: number) {
   return Number.isInteger(year) && Number.isInteger(month) && year >= 2000 && year <= 2100 && month >= 1 && month <= 12
-}
-
-function statementAmount(transaction: Pick<Transaction, "amount" | "budgeted_amount">) {
-  return Number(transaction.budgeted_amount ?? transaction.amount ?? 0)
-}
-
-function roundCurrency(value: number) {
-  return Math.round(value * 100) / 100
 }
 
 function getStatementPaymentDate(card: Pick<CreditCard, "due_day">, year: number, month: number) {
@@ -51,8 +49,11 @@ function buildStatementRow({
   if (existing?.status === "paid") return existing
 
   const paidAmount = Number(existing?.paid_amount || 0)
-  const amountDue = previousBalance + expectedAmount
-  const balanceDelta = amountDue - paidAmount
+  const { amountDue, balanceDelta, carryoverBalance } = calculateStatementBalances({
+    expectedAmount,
+    previousBalance,
+    paidAmount,
+  })
 
   return {
     id: existing?.id || null,
@@ -67,7 +68,7 @@ function buildStatementRow({
     amount_due: amountDue,
     paid_amount: paidAmount,
     balance_delta: balanceDelta,
-    carryover_balance: balanceDelta,
+    carryover_balance: carryoverBalance,
     status: existing?.status || "pending",
     approved_at: existing?.approved_at || null,
     approved_by: existing?.approved_by || null,
@@ -78,7 +79,7 @@ function buildStatementRow({
   } satisfies CreditCardStatement
 }
 
-async function getLatestPreviousBalances(
+async function getPreviousBalances(
   supabase: Awaited<ReturnType<typeof createClient>>,
   cardIds: string[],
   year: number,
@@ -91,16 +92,22 @@ async function getLatestPreviousBalances(
     .from("credit_card_statements")
     .select("credit_card_id, year, month, carryover_balance")
     .in("credit_card_id", cardIds)
+    .eq("status", "paid")
     .order("year", { ascending: false })
     .order("month", { ascending: false })
 
   if (error) throw error
 
-  const targetIndex = getPeriodIndex(year, month)
   for (const statement of data || []) {
     if (balances.has(statement.credit_card_id)) continue
-    if (getPeriodIndex(Number(statement.year), Number(statement.month)) >= targetIndex) continue
-    balances.set(statement.credit_card_id, Number(statement.carryover_balance || 0))
+    if (statement.year > year || (statement.year === year && statement.month >= month)) continue
+    balances.set(statement.credit_card_id, getApplicablePreviousBalance({
+      carryoverBalance: Number(statement.carryover_balance || 0),
+      statementYear: Number(statement.year),
+      statementMonth: Number(statement.month),
+      targetYear: year,
+      targetMonth: month,
+    }))
   }
 
   return balances
@@ -116,7 +123,7 @@ async function getExpectedAmounts(
   const endDate = toDateOnly(year, month, 31)
   let query = supabase
     .from("transactions")
-    .select("id, credit_card_id, amount, budgeted_amount, status")
+    .select("id, credit_card_id, amount, budgeted_amount, status, metadata")
     .is("archived_at", null)
     .eq("type", "expense")
     .eq("payment_method", "credit")
@@ -131,9 +138,12 @@ async function getExpectedAmounts(
   const expectedByCard = new Map<string, number>()
   for (const transaction of data || []) {
     if (!transaction.credit_card_id || transaction.status === "rejected") continue
+    if (isStatementPaymentAdjustment(transaction)) continue
     expectedByCard.set(
       transaction.credit_card_id,
-      (expectedByCard.get(transaction.credit_card_id) || 0) + statementAmount(transaction as Transaction),
+      roundStatementCurrency(
+        (expectedByCard.get(transaction.credit_card_id) || 0) + getStatementTransactionAmount(transaction),
+      ),
     )
   }
 
@@ -175,7 +185,7 @@ export async function GET(request: NextRequest) {
     )
     const [expectedByCard, previousBalances] = await Promise.all([
       getExpectedAmounts(supabase, year, month),
-      getLatestPreviousBalances(supabase, cardIds, year, month),
+      getPreviousBalances(supabase, cardIds, year, month),
     ])
 
     const rows = cardRows.map((card) =>
@@ -224,15 +234,30 @@ export async function POST(request: NextRequest) {
       .single()
     if (cardError) throw cardError
 
+    const { data: existingStatement, error: existingStatementError } = await supabase
+      .from("credit_card_statements")
+      .select("*, credit_card:credit_cards(*, currency:currencies(*)), currency:currencies(*)")
+      .eq("credit_card_id", creditCardId)
+      .eq("year", year)
+      .eq("month", month)
+      .maybeSingle()
+    if (existingStatementError) throw existingStatementError
+    if (existingStatement?.status === "paid") {
+      return NextResponse.json({ statement: existingStatement, approvedTransactions: 0 })
+    }
+
     const [expectedByCard, previousBalances] = await Promise.all([
       getExpectedAmounts(supabase, year, month, creditCardId),
-      getLatestPreviousBalances(supabase, [creditCardId], year, month),
+      getPreviousBalances(supabase, [creditCardId], year, month),
     ])
 
     const expectedAmount = expectedByCard.get(creditCardId) || 0
     const previousBalance = previousBalances.get(creditCardId) || 0
-    const amountDue = previousBalance + expectedAmount
-    const balanceDelta = amountDue - paidAmount
+    const { amountDue, balanceDelta, carryoverBalance, targetCurrentExpense, adjustmentAmount } = calculateStatementPaymentApplication({
+      expectedAmount,
+      previousBalance,
+      paidAmount,
+    })
     const now = new Date().toISOString()
 
     const payload = {
@@ -247,18 +272,63 @@ export async function POST(request: NextRequest) {
       amount_due: amountDue,
       paid_amount: paidAmount,
       balance_delta: balanceDelta,
-      carryover_balance: balanceDelta,
-      status: "paid",
-      approved_at: now,
-      approved_by: user.id,
+      carryover_balance: carryoverBalance,
+      status: "pending",
+      approved_at: null,
+      approved_by: null,
     }
 
-    const { data: statement, error: statementError } = await supabase
-      .from("credit_card_statements")
-      .upsert(payload, { onConflict: "credit_card_id,year,month" })
-      .select("*, credit_card:credit_cards(*, currency:currencies(*)), currency:currencies(*)")
-      .single()
-    if (statementError) throw statementError
+    let pendingStatement = existingStatement
+    if (pendingStatement) {
+      const { data, error } = await supabase
+        .from("credit_card_statements")
+        .update(payload)
+        .eq("id", pendingStatement.id)
+        .eq("status", "pending")
+        .select("*, credit_card:credit_cards(*, currency:currencies(*)), currency:currencies(*)")
+        .maybeSingle()
+      if (error) throw error
+      pendingStatement = data
+    } else {
+      const { data, error } = await supabase
+        .from("credit_card_statements")
+        .insert(payload)
+        .select("*, credit_card:credit_cards(*, currency:currencies(*)), currency:currencies(*)")
+        .single()
+
+      if (error?.code === "23505") {
+        const { data: concurrentStatement, error: concurrentError } = await supabase
+          .from("credit_card_statements")
+          .select("*, credit_card:credit_cards(*, currency:currencies(*)), currency:currencies(*)")
+          .eq("credit_card_id", creditCardId)
+          .eq("year", year)
+          .eq("month", month)
+          .single()
+        if (concurrentError) throw concurrentError
+        if (concurrentStatement.status === "paid") {
+          return NextResponse.json({ statement: concurrentStatement, approvedTransactions: 0 })
+        }
+        pendingStatement = concurrentStatement
+      } else {
+        if (error) throw error
+        pendingStatement = data
+      }
+    }
+
+    if (!pendingStatement) {
+      const { data: concurrentStatement, error: concurrentError } = await supabase
+        .from("credit_card_statements")
+        .select("*, credit_card:credit_cards(*, currency:currencies(*)), currency:currencies(*)")
+        .eq("credit_card_id", creditCardId)
+        .eq("year", year)
+        .eq("month", month)
+        .single()
+      if (concurrentError) throw concurrentError
+      if (concurrentStatement.status === "paid") {
+        return NextResponse.json({ statement: concurrentStatement, approvedTransactions: 0 })
+      }
+      pendingStatement = concurrentStatement
+    }
 
     const startDate = toDateOnly(year, month, 1)
     const endDate = toDateOnly(year, month, 31)
@@ -275,37 +345,49 @@ export async function POST(request: NextRequest) {
     if (pendingError) throw pendingError
 
     const transactionsToApprove = pendingTransactions || []
-    const targetCurrentExpense = Math.min(expectedAmount, paidAmount)
-    let assignedCurrentExpense = 0
+    const pendingExpectedAmount = roundStatementCurrency(
+      transactionsToApprove.reduce((sum, transaction) => sum + getStatementTransactionAmount(transaction), 0),
+    )
+    const alreadyApprovedAmount = Math.max(0, roundStatementCurrency(expectedAmount - pendingExpectedAmount))
+    const targetPendingExpense = Math.max(
+      0,
+      roundStatementCurrency(Math.min(pendingExpectedAmount, targetCurrentExpense - alreadyApprovedAmount)),
+    )
+    const allocations = allocateStatementPayment(
+      transactionsToApprove.map((transaction) => ({
+        id: transaction.id,
+        weight: getStatementTransactionAmount(transaction),
+      })),
+      targetPendingExpense,
+    )
+    let approvedTransactions = 0
 
-    for (let index = 0; index < transactionsToApprove.length; index += 1) {
-      const transaction = transactionsToApprove[index]
-      const budgetedAmount = statementAmount(transaction as Transaction)
-      const isLast = index === transactionsToApprove.length - 1
-      const amount = expectedAmount > 0
-        ? isLast
-          ? roundCurrency(targetCurrentExpense - assignedCurrentExpense)
-          : roundCurrency((budgetedAmount / expectedAmount) * targetCurrentExpense)
-        : budgetedAmount
-      assignedCurrentExpense += amount
+    for (const transaction of transactionsToApprove) {
+      const amount = allocations.get(transaction.id) || 0
+      // The schema requires positive transaction amounts. A zero payment must not
+      // approve consumptions with a fabricated $0.01 amount.
+      if (amount <= 0) continue
 
-      const { error: updateError } = await supabase
+      const { data: approvedTransaction, error: updateError } = await supabase
         .from("transactions")
         .update({
-          amount: Math.max(amount, 0.01),
+          amount,
           status: "approved",
           approved_at: now,
           approved_by: user.id,
         })
         .eq("id", transaction.id)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle()
       if (updateError) throw updateError
+      if (approvedTransaction) approvedTransactions += 1
     }
 
-    const adjustmentAmount = roundCurrency(paidAmount - expectedAmount)
     if (adjustmentAmount > 0.009) {
       const metadata = {
-        source: "credit_card_statement_payment_adjustment",
-        credit_card_statement_id: statement.id,
+        source: CREDIT_CARD_STATEMENT_ADJUSTMENT_SOURCE,
+        credit_card_statement_id: pendingStatement.id,
         expected_amount: expectedAmount,
         paid_amount: paidAmount,
         previous_balance: previousBalance,
@@ -321,7 +403,7 @@ export async function POST(request: NextRequest) {
         .eq("credit_card_id", creditCardId)
         .gte("transaction_date", startDate)
         .lte("transaction_date", endDate)
-        .contains("metadata", { source: "credit_card_statement_payment_adjustment", credit_card_statement_id: statement.id })
+        .contains("metadata", { source: CREDIT_CARD_STATEMENT_ADJUSTMENT_SOURCE, credit_card_statement_id: pendingStatement.id })
       if (existingAdjustmentError) throw existingAdjustmentError
 
       const adjustmentPayload = {
@@ -357,12 +439,32 @@ export async function POST(request: NextRequest) {
       } else {
         const { error: adjustmentInsertError } = await supabase
           .from("transactions")
-          .insert(adjustmentPayload)
+          .upsert({ id: pendingStatement.id, ...adjustmentPayload }, { onConflict: "id" })
         if (adjustmentInsertError) throw adjustmentInsertError
       }
     }
 
-    return NextResponse.json({ statement, approvedTransactions: pendingTransactions?.length || 0 })
+    const { data: statement, error: paidStatementError } = await supabase
+      .from("credit_card_statements")
+      .update({ status: "paid", approved_at: now, approved_by: user.id })
+      .eq("id", pendingStatement.id)
+      .eq("status", "pending")
+      .select("*, credit_card:credit_cards(*, currency:currencies(*)), currency:currencies(*)")
+      .maybeSingle()
+    if (paidStatementError) throw paidStatementError
+
+    if (!statement) {
+      const { data: concurrentPaidStatement, error: concurrentPaidError } = await supabase
+        .from("credit_card_statements")
+        .select("*, credit_card:credit_cards(*, currency:currencies(*)), currency:currencies(*)")
+        .eq("id", pendingStatement.id)
+        .eq("status", "paid")
+        .single()
+      if (concurrentPaidError) throw concurrentPaidError
+      return NextResponse.json({ statement: concurrentPaidStatement, approvedTransactions: 0 })
+    }
+
+    return NextResponse.json({ statement, approvedTransactions })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Error al confirmar pago de tarjeta" },

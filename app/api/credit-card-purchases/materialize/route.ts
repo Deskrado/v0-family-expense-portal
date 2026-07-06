@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { getCreditCardInstallmentDueDate, requiresCreditCardPaymentApproval } from "@/lib/credit-card-billing"
+import { buildCreditCardInstallmentTransactions } from "@/lib/credit-card-installments"
 import { toDateOnly } from "@/lib/date-only"
 import type { CreditCard, CreditCardPurchase } from "@/lib/types"
 
@@ -30,7 +30,6 @@ export async function POST(request: NextRequest) {
     const { data: purchases, error: purchasesError } = await supabase
       .from("credit_card_purchases")
       .select("*, credit_card:credit_cards(*), category:categories(group_id)")
-      .eq("user_id", user.id)
       .eq("is_active", true)
 
     if (purchasesError) throw purchasesError
@@ -54,49 +53,27 @@ export async function POST(request: NextRequest) {
 
     const inserts = []
     for (const purchase of purchaseRows) {
-      for (let index = 0; index < Number(purchase.total_installments || 0); index += 1) {
-        const installmentNumber = index + 1
-        const dueDate = getCreditCardInstallmentDueDate(purchase.start_date, purchase.credit_card, index)
-        if (dueDate < startDate || dueDate > endDate) continue
-        if (existingKeys.has(`${purchase.id}:${installmentNumber}`)) continue
-        const requiresApproval = requiresCreditCardPaymentApproval(dueDate)
+      const installments = buildCreditCardInstallmentTransactions({
+        purchase,
+        card: purchase.credit_card,
+        groupId: purchase.category?.group_id || null,
+        actorUserId: user.id,
+        generatedFor: `${year}-${String(month).padStart(2, "0")}`,
+      })
 
-        inserts.push({
-          user_id: user.id,
-          family_id: purchase.family_id || null,
-          created_by: user.id,
-          description: purchase.description,
-          amount: Number(purchase.installment_amount),
-          budgeted_amount: Number(purchase.installment_amount),
-          currency_id: purchase.currency_id || purchase.credit_card?.currency_id || null,
-          category_id: purchase.category_id,
-          group_id: purchase.category?.group_id || null,
-          transaction_date: dueDate,
-          type: "expense",
-          is_recurring: false,
-          payment_method: "credit",
-          credit_card_id: purchase.credit_card_id,
-          credit_card_purchase_id: purchase.id,
-          installment_number: installmentNumber,
-          status: requiresApproval ? "pending" : "approved",
-          approved_at: requiresApproval ? null : new Date().toISOString(),
-          approved_by: requiresApproval ? null : user.id,
-          notes: purchase.notes,
-          metadata: {
-            source: "credit_card_installment",
-            purchase_date: purchase.start_date,
-            billing_date: dueDate,
-            billing_rule: "credit_card_statement_due",
-            total_installments: purchase.total_installments,
-            generated_at: new Date().toISOString(),
-            generated_for: `${year}-${String(month).padStart(2, "0")}`,
-          },
-        })
+      for (const installment of installments) {
+        const dueDate = installment.transaction_date
+        if (dueDate < startDate || dueDate > endDate) continue
+        if (existingKeys.has(`${purchase.id}:${installment.installment_number}`)) continue
+        inserts.push(installment)
       }
     }
 
     if (inserts.length > 0) {
-      const { error: insertError } = await supabase.from("transactions").insert(inserts)
+      const { error: insertError } = await supabase.from("transactions").upsert(inserts, {
+        onConflict: "credit_card_purchase_id,installment_number",
+        ignoreDuplicates: true,
+      })
       if (insertError) throw insertError
     }
 

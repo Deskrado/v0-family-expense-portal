@@ -16,7 +16,7 @@ import {
 import { formatCurrency } from "@/lib/currency"
 import { getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
 import { formatDateOnlyForDisplay, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
-import type { CreditCard, CreditCardStatement, Transaction } from "@/lib/types"
+import type { CreditCard, CreditCardPurchase, CreditCardStatement, Transaction } from "@/lib/types"
 import {
   CARD_BRANDS,
   CardBrandMark,
@@ -98,7 +98,8 @@ function cardToForm(card: CreditCard): CardFormState {
 
 function transactionStatementKey(transaction: Transaction) {
   const metadata = transaction.metadata || {}
-  const seriesId = typeof metadata.recurring_series_id === "string" ? metadata.recurring_series_id : null
+  const seriesId = transaction.recurring_series_id ||
+    (typeof metadata.recurring_series_id === "string" ? metadata.recurring_series_id : null)
   if (seriesId) return `series:${seriesId}`
 
   return [
@@ -127,6 +128,14 @@ function getStatementTransactionKind(transaction: Transaction) {
     return transaction.installment_number ? `Cuota ${transaction.installment_number}` : "Compra en cuotas"
   }
   return "Transacción manual"
+}
+
+function getInstallmentProgress(purchase: CreditCardPurchase, year: number, month: number) {
+  const periodEnd = `${year}-${String(month).padStart(2, "0")}-31`
+  return (purchase.transactions || []).reduce((progress, transaction) => {
+    if (transaction.archived_at || transaction.transaction_date > periodEnd) return progress
+    return Math.max(progress, Number(transaction.installment_number) || 0)
+  }, 0)
 }
 
 export function CreditCardManagement() {
@@ -723,7 +732,7 @@ export function CreditCardManagement() {
                     </div>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                       <span>{formatDateOnlyForDisplay(purchase.start_date)}</span>
-                      <Badge variant="outline">{purchase.current_installment}/{purchase.total_installments} cuotas</Badge>
+                      <Badge variant="outline">{getInstallmentProgress(purchase, statementYear, statementMonth)}/{purchase.total_installments} cuotas</Badge>
                     </div>
                     <div className="mt-2 flex items-center justify-between gap-3">
                       <span className="text-xs text-muted-foreground">
@@ -760,7 +769,7 @@ export function CreditCardManagement() {
                         <TableCell>
                           {formatDateOnlyForDisplay(getCreditCardStatementDueDate(purchase.start_date, purchase.credit_card))}
                         </TableCell>
-                        <TableCell>{purchase.current_installment}/{purchase.total_installments}</TableCell>
+                        <TableCell>{getInstallmentProgress(purchase, statementYear, statementMonth)}/{purchase.total_installments}</TableCell>
                         <TableCell className="text-right font-mono">
                           {formatCurrency(Number(purchase.total_amount), purchase.credit_card?.currency)}
                         </TableCell>

@@ -17,11 +17,12 @@ import {
 } from "@/components/ui/select"
 import { formatCurrency } from "@/lib/currency"
 import { CreditCardSelectLabel } from "@/components/credit-cards/card-brand"
-import { formatDateOnlyForDisplay, getCreditCardInstallmentDueDate, getCreditCardStatementDueDate, requiresCreditCardPaymentApproval } from "@/lib/credit-card-billing"
+import { formatDateOnlyForDisplay, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
 import type { CreditCardPurchase } from "@/lib/types"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { invalidateCache, invalidateCacheByPrefix } from "@/lib/swr-cache"
+import { buildCreditCardInstallmentTransactions } from "@/lib/credit-card-installments"
 
 type CreditCardPurchaseFormProps = {
   initialData?: CreditCardPurchase
@@ -33,6 +34,7 @@ type ExistingInstallmentTransaction = {
   status: "pending" | "approved" | "rejected" | null
   approved_at: string | null
   approved_by: string | null
+  created_by: string | null
 }
 
 export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormProps) {
@@ -89,13 +91,13 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
 
       const totalInstallments = Number(form.total_installments)
       const purchasePayload = {
-        user_id: user.id,
+        user_id: initialData?.user_id || user.id,
+        family_id: initialData?.family_id || selectedCard.family_id || null,
         credit_card_id: form.credit_card_id,
         description: form.description.trim(),
         total_amount: Number(form.total_amount),
         installment_amount: installmentAmount,
         total_installments: totalInstallments,
-        current_installment: 1,
         start_date: form.start_date,
         category_id: form.category_id === "__none" ? null : form.category_id,
         currency_id: selectedCard.currency_id || null,
@@ -107,12 +109,12 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
             .from("credit_card_purchases")
             .update(purchasePayload)
             .eq("id", initialData.id)
-            .select("id")
+            .select("id, user_id, family_id")
             .single()
         : await supabase
             .from("credit_card_purchases")
             .insert(purchasePayload)
-            .select("id")
+            .select("id, user_id, family_id")
             .single()
 
       if (purchaseResult.error) throw purchaseResult.error
@@ -120,7 +122,7 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
 
       const { data: existingTransactions, error: existingTransactionsError } = await supabase
         .from("transactions")
-        .select("id, installment_number, status, approved_at, approved_by")
+        .select("id, installment_number, status, approved_at, approved_by, created_by")
         .eq("credit_card_purchase_id", purchaseId)
 
       if (existingTransactionsError) throw existingTransactionsError
@@ -132,42 +134,36 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
         }
       }
 
-      for (let index = 0; index < totalInstallments; index += 1) {
-        const installmentNumber = index + 1
-        const dueDate = getCreditCardInstallmentDueDate(form.start_date, selectedCard, index)
+      const synchronizedInstallments = buildCreditCardInstallmentTransactions({
+        purchase: {
+          ...purchasePayload,
+          id: purchaseId,
+          user_id: purchaseResult.data.user_id,
+          family_id: purchaseResult.data.family_id,
+          category_id: purchasePayload.category_id,
+        },
+        card: selectedCard,
+        groupId: selectedCategory?.group_id || null,
+        actorUserId: user.id,
+      })
+
+      for (const synchronizedInstallment of synchronizedInstallments) {
+        const installmentNumber = synchronizedInstallment.installment_number
         const existing = existingByInstallment.get(installmentNumber)
-        const requiresApproval = requiresCreditCardPaymentApproval(dueDate)
         const transactionPayload = {
-          user_id: user.id,
-          description: form.description.trim(),
-          amount: installmentAmount,
-          budgeted_amount: installmentAmount,
-          currency_id: selectedCard.currency_id || null,
-          category_id: form.category_id === "__none" ? null : form.category_id,
-          group_id: selectedCategory?.group_id || null,
-          transaction_date: dueDate,
-          type: "expense",
-          is_recurring: false,
-          payment_method: "credit",
-          credit_card_id: form.credit_card_id,
-          credit_card_purchase_id: purchaseId,
-          installment_number: installmentNumber,
-          status: existing?.status || (requiresApproval ? "pending" : "approved"),
-          approved_at: existing?.approved_at || (requiresApproval ? null : new Date().toISOString()),
-          approved_by: existing?.approved_by || (requiresApproval ? null : user.id),
-          notes: null,
-          metadata: {
-            source: "credit_card_installment",
-            purchase_date: form.start_date,
-            billing_date: dueDate,
-            billing_rule: "credit_card_statement_due",
-            total_installments: totalInstallments,
-          },
+          ...synchronizedInstallment,
+          status: existing?.status || synchronizedInstallment.status,
+          approved_at: existing?.approved_at || synchronizedInstallment.approved_at,
+          approved_by: existing?.approved_by || synchronizedInstallment.approved_by,
+          created_by: existing ? existing.created_by : synchronizedInstallment.created_by,
         }
 
         const transactionResult = existing
           ? await supabase.from("transactions").update(transactionPayload).eq("id", existing.id)
-          : await supabase.from("transactions").insert(transactionPayload)
+          : await supabase.from("transactions").upsert(transactionPayload, {
+              onConflict: "credit_card_purchase_id,installment_number",
+              ignoreDuplicates: true,
+            })
 
         if (transactionResult.error) throw transactionResult.error
       }

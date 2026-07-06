@@ -31,6 +31,7 @@ import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { invalidateCache, invalidateCacheByPrefix } from "@/lib/swr-cache"
+import { buildCreditCardInstallmentTransactions } from "@/lib/credit-card-installments"
 
 const transactionSchema = z.object({
   description: z.string().min(1, "La descripción es requerida"),
@@ -163,6 +164,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
     setIsSubmitting(true)
     setError(null)
     let createdPurchaseIdForCleanup: string | null = null
+    let createdPurchaseScope: { id: string; user_id: string; family_id: string | null } | null = null
 
     try {
       const supabase = createClient()
@@ -236,6 +238,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
           .from("credit_card_purchases")
           .insert({
             user_id: user.id,
+            family_id: creditCardForSubmit?.family_id || null,
             credit_card_id: data.credit_card_id,
             description: data.description.trim(),
             total_amount: Number(data.amount),
@@ -248,11 +251,12 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             notes: data.notes?.trim() || null,
             is_active: true,
           })
-          .select("id")
+          .select("id, user_id, family_id")
           .single()
 
         if (purchaseError) throw purchaseError
         creditCardPurchaseId = purchase.id
+        createdPurchaseScope = purchase
         createdPurchaseIdForCleanup = purchase.id
       }
 
@@ -288,6 +292,8 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             ...transactionData,
             credit_card_purchase_id: creditCardPurchaseId,
             installment_number: creditCardPurchaseId ? 1 : null,
+            recurring_series_id: recurringSeriesId,
+            recurrence_period: recurringSeriesId ? `${data.transaction_date.slice(0, 7)}-01` : null,
             metadata: recurringSeriesId
               ? {
                   ...creditCardBillingMetadata,
@@ -314,6 +320,7 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             ).map((transactionDate, index) => ({
               ...transactionPayload,
               transaction_date: getBillingDate(transactionDate),
+              recurrence_period: `${transactionDate.slice(0, 7)}-01`,
               metadata: {
                 ...(data.payment_method === "credit"
                   ? {
@@ -332,9 +339,34 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
             }))
           : transactionPayload
 
-        const { error: insertError } = await supabase
-          .from("transactions")
-          .insert(insertPayload)
+        const installmentPayload = shouldCreateInstallments && createdPurchaseScope && selectedCreditCard
+          ? buildCreditCardInstallmentTransactions({
+              purchase: {
+                id: createdPurchaseScope.id,
+                user_id: createdPurchaseScope.user_id,
+                family_id: createdPurchaseScope.family_id,
+                credit_card_id: selectedCreditCard.id,
+                description: data.description.trim(),
+                installment_amount: transactionAmount,
+                total_installments: installments,
+                start_date: data.transaction_date,
+                category_id: data.category_id === "__none" ? null : data.category_id || null,
+                currency_id: data.currency_id || selectedCreditCard.currency_id || null,
+                notes: data.notes?.trim() || null,
+              },
+              card: selectedCreditCard,
+              groupId: data.group_id === "__none" ? null : data.group_id || null,
+              actorUserId: user.id,
+            })
+          : null
+
+        const insertQuery = installmentPayload
+          ? supabase.from("transactions").upsert(installmentPayload, {
+              onConflict: "credit_card_purchase_id,installment_number",
+              ignoreDuplicates: true,
+            })
+          : supabase.from("transactions").insert(insertPayload)
+        const { error: insertError } = await insertQuery
         
         if (insertError) throw insertError
       }

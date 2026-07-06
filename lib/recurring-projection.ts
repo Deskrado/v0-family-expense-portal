@@ -16,7 +16,8 @@ function targetMonthKey(year: number, monthIndex: number) {
 
 function getRecurringKey(transaction: Transaction) {
   const metadata = transaction.metadata || {}
-  const seriesId = typeof metadata.recurring_series_id === "string" ? metadata.recurring_series_id : null
+  const seriesId = transaction.recurring_series_id ||
+    (typeof metadata.recurring_series_id === "string" ? metadata.recurring_series_id : null)
   if (seriesId) return `series:${seriesId}`
 
   return [
