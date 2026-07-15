@@ -374,6 +374,8 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
       // Revalidate data
       invalidateCacheByPrefix("transactions")
       invalidateCache("credit-card-purchases")
+      invalidateCache("credit-card-statements")
+      invalidateCache("credit-card-statement-transactions")
 
       router.push(redirectUrl || "/dashboard")
       router.refresh()

@@ -33,7 +33,7 @@ import { CheckCircle2, MoreHorizontal, Pencil, Trash2, Search, Plus, Loader2, XC
 import Link from "next/link"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import { invalidateCacheByPrefix } from "@/lib/swr-cache"
+import { invalidateCacheByPrefix, invalidateCaches } from "@/lib/swr-cache"
 import { dateOnlyToLocalDate } from "@/lib/date-only"
 import {
   AlertDialog,
@@ -166,6 +166,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
       if (error) throw error
 
       invalidateCacheByPrefix("transactions")
+      invalidateCaches(["credit-card-statements", "credit-card-statement-transactions", "credit-card-purchases"])
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al eliminar la transaccion")
     } finally {
@@ -239,6 +240,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
 
       if (error) throw error
       invalidateCacheByPrefix("transactions")
+      invalidateCaches(["credit-card-statements", "credit-card-statement-transactions", "credit-card-purchases"])
       if (status === "approved") {
         setApprovalTransaction(null)
         setApprovalAmount("")

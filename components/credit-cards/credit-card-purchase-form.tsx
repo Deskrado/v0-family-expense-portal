@@ -35,6 +35,7 @@ type ExistingInstallmentTransaction = {
   approved_at: string | null
   approved_by: string | null
   created_by: string | null
+  archived_at: string | null
 }
 
 export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormProps) {
@@ -122,7 +123,7 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
 
       const { data: existingTransactions, error: existingTransactionsError } = await supabase
         .from("transactions")
-        .select("id, installment_number, status, approved_at, approved_by, created_by")
+        .select("id, installment_number, status, approved_at, approved_by, created_by, archived_at")
         .eq("credit_card_purchase_id", purchaseId)
 
       if (existingTransactionsError) throw existingTransactionsError
@@ -156,6 +157,7 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
           approved_at: existing?.approved_at || synchronizedInstallment.approved_at,
           approved_by: existing?.approved_by || synchronizedInstallment.approved_by,
           created_by: existing ? existing.created_by : synchronizedInstallment.created_by,
+          archived_at: null,
         }
 
         const transactionResult = existing
@@ -181,6 +183,8 @@ export function CreditCardPurchaseForm({ initialData }: CreditCardPurchaseFormPr
       }
 
       invalidateCache("credit-card-purchases")
+      invalidateCache("credit-card-statements")
+      invalidateCache("credit-card-statement-transactions")
       invalidateCacheByPrefix("transactions")
       router.push("/dashboard/tarjetas")
       router.refresh()
