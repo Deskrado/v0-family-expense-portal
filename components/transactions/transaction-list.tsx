@@ -29,7 +29,19 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle2, MoreHorizontal, Pencil, Trash2, Search, Plus, Loader2, XCircle } from "lucide-react"
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CheckCircle2,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Search,
+  Plus,
+  Loader2,
+  XCircle,
+} from "lucide-react"
 import Link from "next/link"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
@@ -55,12 +67,16 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+import { getTransactionActualAmount, matchesTransactionSearch } from "@/lib/transaction-list-utils"
 
 interface TransactionListProps {
   transactions: Transaction[]
   type: "expense" | "income" | "all"
   isLoading?: boolean
 }
+
+type SortKey = "date" | "actual"
+type SortDirection = "asc" | "desc"
 
 export function TransactionList({ transactions, type, isLoading }: TransactionListProps) {
   const [searchQuery, setSearchQuery] = useState("")
@@ -72,6 +88,8 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
   const [error, setError] = useState<string | null>(null)
   const [approvalTransaction, setApprovalTransaction] = useState<Transaction | null>(null)
   const [approvalAmount, setApprovalAmount] = useState("")
+  const [sortKey, setSortKey] = useState<SortKey>("date")
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
 
   const paymentMethodLabels: Record<string, string> = {
     cash: "Efectivo",
@@ -111,13 +129,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
 
   const filteredTransactions = transactions
     .filter((transaction) => {
-      const query = searchQuery.trim().toLowerCase()
-      const matchesSearch = !query || [
-        transaction.description,
-        transaction.category?.name || "",
-        transaction.group?.name || "",
-        transaction.credit_card ? getCreditCardLabel(transaction) : "",
-      ].some((value) => value.toLowerCase().includes(query))
+      const matchesSearch = matchesTransactionSearch(transaction, searchQuery)
 
       const matchesRecurrence =
         recurrenceFilter === "all" ||
@@ -135,14 +147,31 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
       return matchesSearch && matchesRecurrence && matchesPayment
     })
     .sort((left, right) => {
-      const rightCreatedAt = new Date(right.created_at || right.transaction_date).getTime()
-      const leftCreatedAt = new Date(left.created_at || left.transaction_date).getTime()
-      if (rightCreatedAt !== leftCreatedAt) return rightCreatedAt - leftCreatedAt
+      const comparison = sortKey === "date"
+        ? left.transaction_date.localeCompare(right.transaction_date)
+        : getTransactionActualAmount(left) - getTransactionActualAmount(right)
 
-      const rightDate = new Date(right.transaction_date).getTime()
-      const leftDate = new Date(left.transaction_date).getTime()
-      return rightDate - leftDate
+      if (comparison !== 0) return sortDirection === "asc" ? comparison : -comparison
+
+      return right.transaction_date.localeCompare(left.transaction_date) || right.id.localeCompare(left.id)
     })
+
+  const updateSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection((direction) => direction === "asc" ? "desc" : "asc")
+      return
+    }
+
+    setSortKey(key)
+    setSortDirection("desc")
+  }
+
+  const renderSortIcon = (key: SortKey) => {
+    if (sortKey !== key) return <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+    return sortDirection === "asc"
+      ? <ArrowUp className="h-3.5 w-3.5" />
+      : <ArrowDown className="h-3.5 w-3.5" />
+  }
 
   const deleteTarget = transactions.find((item) => item.id === deleteId) || null
   const willArchiveOnDelete = Boolean(
@@ -341,7 +370,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
               <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Buscar..."
+                  placeholder="Buscar por descripción o real..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-8"
@@ -465,14 +494,39 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                 <Table className="min-w-[920px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Fecha</TableHead>
+                    <TableHead aria-sort={sortKey === "date" ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="-ml-3 h-8 gap-1.5 px-3"
+                        onClick={() => updateSort("date")}
+                      >
+                        Fecha
+                        {renderSortIcon("date")}
+                      </Button>
+                    </TableHead>
                     <TableHead>Descripción</TableHead>
                     <TableHead>Categoría</TableHead>
                     <TableHead>Grupo</TableHead>
                     {type === "all" && <TableHead>Tipo</TableHead>}
                     {(type === "expense" || type === "all") && <TableHead>Método</TableHead>}
                     <TableHead className="text-right">Previsto</TableHead>
-                    <TableHead className="text-right">Real</TableHead>
+                    <TableHead
+                      className="text-right"
+                      aria-sort={sortKey === "actual" ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}
+                    >
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="-mr-3 ml-auto h-8 gap-1.5 px-3"
+                        onClick={() => updateSort("actual")}
+                      >
+                        Real
+                        {renderSortIcon("actual")}
+                      </Button>
+                    </TableHead>
                     <TableHead className="text-right">Difer.</TableHead>
                     <TableHead className="w-10"></TableHead>
                   </TableRow>
@@ -481,7 +535,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                   {filteredTransactions.map((transaction) => {
                     const budgeted = Number(transaction.budgeted_amount || transaction.amount)
                     const status = transaction.status || "approved"
-                    const actual = status === "pending" || status === "rejected" ? 0 : Number(transaction.amount)
+                    const actual = getTransactionActualAmount(transaction)
                     const difference = actual - budgeted
                     const currency = transaction.currency || null
 
