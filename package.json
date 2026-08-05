@@ -15,7 +15,8 @@
     "db:migrate:local": "node scripts/supabase-migrate.mjs local",
     "db:reset:local": "node scripts/supabase-migrate.mjs reset",
     "db:smoke": "node scripts/supabase-smoke-test.mjs",
-    "db:reconcile-installments": "node scripts/reconcile-credit-card-installments.mjs"
+    "db:reconcile-installments": "node scripts/reconcile-credit-card-installments.mjs",
+    "db:reconcile-icbc-visa-2026-08": "node scripts/reconcile-icbc-visa-august-2026.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

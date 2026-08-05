@@ -2,6 +2,19 @@ import type { Transaction } from "@/lib/types"
 
 type TransactionAmountData = Pick<Transaction, "amount" | "status">
 type TransactionSearchData = Pick<Transaction, "description" | "amount" | "status">
+type TransactionRecurrenceData = Pick<Transaction, "type" | "is_recurring" | "payment_method" | "credit_card_id">
+
+export type TransactionRecurrenceKind = "normal" | "recurring" | "automatic_debit"
+
+export function getTransactionRecurrenceKind(transaction: TransactionRecurrenceData): TransactionRecurrenceKind {
+  if (!transaction.is_recurring) return "normal"
+
+  return transaction.type === "expense" &&
+    transaction.payment_method === "credit" &&
+    Boolean(transaction.credit_card_id)
+    ? "automatic_debit"
+    : "recurring"
+}
 
 export function getTransactionActualAmount(transaction: TransactionAmountData) {
   const status = transaction.status || "approved"

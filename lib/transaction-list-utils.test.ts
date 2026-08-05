@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   getTransactionActualAmount,
+  getTransactionRecurrenceKind,
   matchesTransactionSearch,
   parseLocalizedAmount,
 } from "@/lib/transaction-list-utils"
@@ -31,5 +32,28 @@ describe("transaction list helpers", () => {
     expect(matchesTransactionSearch(pending, "9.000")).toBe(false)
     expect(matchesTransactionSearch(pending, "0")).toBe(true)
     expect(getTransactionActualAmount(pending)).toBe(0)
+  })
+
+  it("separates automatic card debits from recurring expenses", () => {
+    expect(getTransactionRecurrenceKind({
+      type: "expense",
+      is_recurring: true,
+      payment_method: "credit",
+      credit_card_id: "card-id",
+    })).toBe("automatic_debit")
+
+    expect(getTransactionRecurrenceKind({
+      type: "expense",
+      is_recurring: true,
+      payment_method: "debit",
+      credit_card_id: null,
+    })).toBe("recurring")
+
+    expect(getTransactionRecurrenceKind({
+      type: "expense",
+      is_recurring: false,
+      payment_method: "credit",
+      credit_card_id: "card-id",
+    })).toBe("normal")
   })
 })

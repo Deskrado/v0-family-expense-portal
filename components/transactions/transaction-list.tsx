@@ -67,7 +67,11 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
-import { getTransactionActualAmount, matchesTransactionSearch } from "@/lib/transaction-list-utils"
+import {
+  getTransactionActualAmount,
+  getTransactionRecurrenceKind,
+  matchesTransactionSearch,
+} from "@/lib/transaction-list-utils"
 
 interface TransactionListProps {
   transactions: Transaction[]
@@ -130,11 +134,11 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
   const filteredTransactions = transactions
     .filter((transaction) => {
       const matchesSearch = matchesTransactionSearch(transaction, searchQuery)
+      const recurrenceKind = getTransactionRecurrenceKind(transaction)
 
       const matchesRecurrence =
         recurrenceFilter === "all" ||
-        (recurrenceFilter === "recurring" && transaction.is_recurring) ||
-        (recurrenceFilter === "normal" && !transaction.is_recurring)
+        recurrenceFilter === recurrenceKind
 
       const matchesPayment =
         paymentFilter === "all" ||
@@ -385,6 +389,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                   <SelectItem value="all">Todas</SelectItem>
                   <SelectItem value="normal">Normales</SelectItem>
                   <SelectItem value="recurring">Recurrentes</SelectItem>
+                  <SelectItem value="automatic_debit">Débitos automáticos</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -474,7 +479,11 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                             {transaction.type === "expense" ? "Gasto" : "Ingreso"}
                           </Badge>
                         )}
-                        {transaction.is_recurring && <Badge variant="secondary">Recurrente</Badge>}
+                        {transaction.is_recurring && (
+                          <Badge variant="secondary">
+                            {getTransactionRecurrenceKind(transaction) === "automatic_debit" ? "Débito automático" : "Recurrente"}
+                          </Badge>
+                        )}
                         {status === "pending" && <Badge variant="outline">Pendiente</Badge>}
                         {transaction.category?.name && <Badge variant="outline">{transaction.category.name}</Badge>}
                         {transaction.group?.name && <Badge variant="outline">{transaction.group.name}</Badge>}
@@ -549,7 +558,7 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
                             {transaction.description}
                             {transaction.is_recurring && (
                               <Badge variant="secondary" className="text-xs">
-                                Recurrente
+                                {getTransactionRecurrenceKind(transaction) === "automatic_debit" ? "Débito automático" : "Recurrente"}
                               </Badge>
                             )}
                             {status === "pending" && (
@@ -615,7 +624,9 @@ export function TransactionList({ transactions, type, isLoading }: TransactionLi
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Aprobar {approvalTransaction?.type === "income" ? "ingreso" : "gasto"} recurrente
+              {approvalTransaction && getTransactionRecurrenceKind(approvalTransaction) === "automatic_debit"
+                ? "Aprobar débito automático"
+                : `Aprobar ${approvalTransaction?.type === "income" ? "ingreso" : "gasto"} recurrente`}
             </DialogTitle>
             <DialogDescription>
               Confirmá si el importe se mantiene o cargá el valor real de este mes. El cambio se guarda solo en esta ocurrencia.

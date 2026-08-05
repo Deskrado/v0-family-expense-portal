@@ -272,9 +272,13 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
         credit_card_id: data.payment_method === "credit" && data.credit_card_id !== "__none" ? data.credit_card_id || null : null,
         budgeted_amount: budgetedAmount,
         transaction_date: billingTransactionDate,
-        status: shouldCreateRecurringExpense || requiresCardApproval ? "pending" : "approved",
-        approved_at: shouldCreateRecurringExpense || requiresCardApproval ? null : new Date().toISOString(),
-        approved_by: shouldCreateRecurringExpense || requiresCardApproval ? null : user.id,
+        ...(!initialData?.id
+          ? {
+              status: shouldCreateRecurringExpense || requiresCardApproval ? "pending" : "approved",
+              approved_at: shouldCreateRecurringExpense || requiresCardApproval ? null : new Date().toISOString(),
+              approved_by: shouldCreateRecurringExpense || requiresCardApproval ? null : user.id,
+            }
+          : {}),
         notes: data.notes?.trim() || null,
       }
       const recurringSeriesId = shouldCreateRecurringExpense ? crypto.randomUUID() : null
@@ -638,7 +642,9 @@ export function TransactionForm({ type, initialData, backUrl, redirectUrl }: Tra
               onCheckedChange={(checked) => setValue("is_recurring", checked, { shouldDirty: true })}
             />
             <Label htmlFor="is_recurring">
-              {type === "expense" ? "Gasto recurrente" : "Ingreso recurrente"}
+              {type === "expense"
+                ? paymentMethod === "credit" ? "Débito automático en tarjeta" : "Gasto recurrente"
+                : "Ingreso recurrente"}
             </Label>
           </div>
 
