@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { invalidateCaches } from "@/lib/swr-cache"
 import { AnnualProjectionChart } from "@/components/dashboard/annual-projection-chart"
 import { useDashboard } from "@/components/dashboard/dashboard-context"
@@ -48,6 +49,7 @@ import {
 import { formatCompactCurrency, formatCurrency, getCurrentMonth, getCurrentYear, getMonthName } from "@/lib/currency"
 import { applyMonthlyClosures, buildAnnualProjection, getProjectionAlerts } from "@/lib/projection-engine"
 import { getWealthBreakdown } from "@/lib/wealth-summary"
+import { buildProjectionSearchParams, parseProjectionPeriod } from "@/lib/projection-url-state"
 import type { Category, Group, ProjectionScenario, ProjectionScenarioItem, Transaction } from "@/lib/types"
 import { AlertTriangle, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Loader2, Minus, Pencil, Plus, RotateCcw, Trash2, TrendingDown, TrendingUp, X } from "lucide-react"
 import {
@@ -250,19 +252,24 @@ function scenarioItemLabel(item: ProjectionScenarioItem) {
 }
 
 export function ProjectionDashboard() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { selectedMonth, selectedYear, setMonthYear } = useDashboard()
   const [today] = useState(() => ({ month: getCurrentMonth(), year: getCurrentYear() }))
-  const [rangeMode, setRangeMode] = useState<ProjectionRangeMode>("trailing")
-  const [comparisonEnabled, setComparisonEnabled] = useState(true)
-  const [selectedCategoryId, setSelectedCategoryId] = useState("__all")
-  const [selectedGroupId, setSelectedGroupId] = useState("__all")
+  const [rangeMode, setRangeMode] = useState<ProjectionRangeMode>(() => searchParams.get("window") === "forward" ? "forward" : "trailing")
+  const [comparisonEnabled, setComparisonEnabled] = useState(() => searchParams.get("compare") !== "none")
+  const [selectedCategoryId, setSelectedCategoryId] = useState(() => searchParams.get("category") || "__all")
+  const [selectedGroupId, setSelectedGroupId] = useState(() => searchParams.get("group") || "__all")
   const [analysisPeriod, setAnalysisPeriod] = useState(`${selectedYear}-${selectedMonth}`)
+  const [urlReady, setUrlReady] = useState(false)
+  const initializedFromUrl = useRef(false)
   const rangeStart = rangeMode === "trailing"
     ? addMonths(selectedYear, selectedMonth, -11)
     : { month: selectedMonth, year: selectedYear }
   const rangeEnd = addMonths(rangeStart.year, rangeStart.month, 11)
   const comparisonStart = addMonths(rangeStart.year, rangeStart.month, -12)
   const comparisonEnd = addMonths(rangeEnd.year, rangeEnd.month, -12)
+  const transactionStart = addMonths(comparisonStart.year, comparisonStart.month, -12)
   const defaultProjectionEnd = addMonths(selectedYear, selectedMonth, 11)
   const [scenarioForm, setScenarioForm] = useState<ScenarioForm>(emptyScenarioForm)
   const [selectedScenarioId, setSelectedScenarioId] = useState("")
@@ -295,16 +302,57 @@ export function ProjectionDashboard() {
   }, [selectedMonth, selectedYear])
 
   useEffect(() => {
+    if (initializedFromUrl.current) return
+    initializedFromUrl.current = true
+    const period = parseProjectionPeriod(searchParams.get("period"))
+    if (period) setMonthYear(period.month, period.year)
+    setUrlReady(true)
+  }, [searchParams, setMonthYear])
+
+  useEffect(() => {
+    if (!urlReady) return
+    const nextQuery = buildProjectionSearchParams(searchParams.toString(), {
+      categoryId: selectedCategoryId,
+      comparisonEnabled,
+      groupId: selectedGroupId,
+      month: selectedMonth,
+      rangeMode,
+      year: selectedYear,
+    })
+    if (nextQuery !== searchParams.toString()) router.replace(`/dashboard/proyeccion?${nextQuery}`, { scroll: false })
+  }, [comparisonEnabled, rangeMode, router, searchParams, selectedCategoryId, selectedGroupId, selectedMonth, selectedYear, urlReady])
+
+  useEffect(() => {
     setAnalysisPeriod(`${selectedYear}-${selectedMonth}`)
   }, [selectedMonth, selectedYear])
 
-  const { data: yearlyTransactions, isLoading: transactionsLoading } = useYearlyTransactions()
-  const { data: purchases, isLoading: purchasesLoading } = useCreditCardPurchases()
+  const {
+    data: yearlyTransactions,
+    error: transactionsError,
+    isLoading: transactionsLoading,
+    mutate: retryTransactions,
+  } = useYearlyTransactions({
+    fromMonth: transactionStart.month,
+    fromYear: transactionStart.year,
+    toMonth: rangeEnd.month,
+    toYear: rangeEnd.year,
+  })
+  const {
+    data: purchases,
+    error: purchasesError,
+    isLoading: purchasesLoading,
+    mutate: retryPurchases,
+  } = useCreditCardPurchases()
   const { data: recurringIncomeTemplates } = useRecurringIncomeTemplates()
   const { data: categories } = useCategories()
   const { data: groups } = useGroups()
-  const { data: scenarios, isLoading: scenariosLoading } = useProjectionScenarios()
-  const { data: closures } = useMonthlyClosures({
+  const {
+    data: scenarios,
+    error: scenariosError,
+    isLoading: scenariosLoading,
+    mutate: retryScenarios,
+  } = useProjectionScenarios()
+  const { data: closures, error: closuresError, mutate: retryClosures } = useMonthlyClosures({
     fromMonth: comparisonStart.month,
     fromYear: comparisonStart.year,
     toMonth: rangeEnd.month,
@@ -317,6 +365,19 @@ export function ProjectionDashboard() {
   const { data: portfolioSnapshots } = usePortfolioSnapshots()
   const { data: savingsGoals } = useSavingsGoals()
   const { data: fxQuotes } = useFxQuotes()
+  const dataError = transactionsError || purchasesError || scenariosError || closuresError
+
+  useEffect(() => {
+    if (categories && selectedCategoryId !== "__all") {
+      const selectedCategory = categories.find((category) => category.id === selectedCategoryId && category.type === "expense")
+      if (!selectedCategory || (selectedGroupId !== "__all" && selectedCategory.group_id !== selectedGroupId)) {
+        setSelectedCategoryId("__all")
+      }
+    }
+    if (groups && selectedGroupId !== "__all" && !groups.some((group) => group.id === selectedGroupId)) {
+      setSelectedGroupId("__all")
+    }
+  }, [categories, groups, selectedCategoryId, selectedGroupId])
   const currency = settings?.default_currency || currencies?.find((item) => item.code === "ARS") || currencies?.[0] || null
   const months = Array.from({ length: 12 }, (_, index) => index + 1)
   const selectedScenario = (scenarios || []).find((scenario) => scenario.id === selectedScenarioId) || scenarios?.[0] || null
@@ -695,15 +756,29 @@ export function ProjectionDashboard() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="flex items-center justify-center gap-3 py-12" role="status" aria-live="polite">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
+        <span className="sr-only">Cargando datos de proyección</span>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {error && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+      {error ? <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</div> : null}
+      {dataError ? (
+        <div className="flex flex-col gap-3 rounded-md bg-destructive/10 p-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between" role="alert">
+          <span>No se pudieron actualizar todos los datos de Proyección. Podés seguir viendo la última versión disponible.</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void Promise.all([retryTransactions(), retryPurchases(), retryScenarios(), retryClosures()])}
+          >
+            Reintentar
+          </Button>
+        </div>
+      ) : null}
 
       <Card>
         <CardContent className="grid gap-4 pt-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
@@ -876,16 +951,18 @@ export function ProjectionDashboard() {
         <CardContent className="space-y-5">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-end">
             <div className="min-w-0 space-y-2">
-              <Label>Nuevo escenario</Label>
+              <Label htmlFor="scenario-name">Nuevo escenario</Label>
               <Input
+                id="scenario-name"
                 placeholder="Ej: Compra auto"
                 value={scenarioForm.name}
                 onChange={(event) => setScenarioForm({ ...scenarioForm, name: event.target.value })}
               />
             </div>
             <div className="min-w-0 space-y-2">
-              <Label>Descripción</Label>
+              <Label htmlFor="scenario-description">Descripción</Label>
               <Input
+                id="scenario-description"
                 placeholder="Contexto opcional"
                 value={scenarioForm.description}
                 onChange={(event) => setScenarioForm({ ...scenarioForm, description: event.target.value })}
@@ -907,9 +984,9 @@ export function ProjectionDashboard() {
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-12 xl:items-end">
             <div className="min-w-0 space-y-2 xl:col-span-2">
-              <Label>Escenario</Label>
+              <Label htmlFor="scenario-select">Escenario</Label>
               <Select value={selectedScenario?.id || ""} onValueChange={setSelectedScenarioId}>
-                <SelectTrigger>
+                <SelectTrigger id="scenario-select">
                   <SelectValue placeholder="Seleccionar" />
                 </SelectTrigger>
                 <SelectContent>
@@ -920,17 +997,17 @@ export function ProjectionDashboard() {
               </Select>
             </div>
             <div className="min-w-0 space-y-2 xl:col-span-3">
-              <Label>Concepto</Label>
-              <Input value={itemForm.name} onChange={(event) => setItemForm({ ...itemForm, name: event.target.value })} placeholder="Ej: Seguro" />
+              <Label htmlFor="scenario-item-name">Concepto</Label>
+              <Input id="scenario-item-name" value={itemForm.name} onChange={(event) => setItemForm({ ...itemForm, name: event.target.value })} placeholder="Ej: Seguro" />
             </div>
             <div className="min-w-0 space-y-2 xl:col-span-2">
-              <Label>Monto</Label>
-              <Input type="number" step="0.01" value={itemForm.amount} onChange={(event) => setItemForm({ ...itemForm, amount: event.target.value })} placeholder="0.00" />
+              <Label htmlFor="scenario-item-amount">Monto</Label>
+              <Input id="scenario-item-amount" type="number" step="0.01" value={itemForm.amount} onChange={(event) => setItemForm({ ...itemForm, amount: event.target.value })} placeholder="0.00" />
             </div>
             <div className="min-w-0 space-y-2 xl:col-span-2">
-              <Label>Frecuencia</Label>
+              <Label htmlFor="scenario-item-frequency">Frecuencia</Label>
               <Select value={itemForm.frequency} onValueChange={(value) => setItemForm({ ...itemForm, frequency: value as ScenarioItemForm["frequency"] })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="scenario-item-frequency"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="monthly">Mensual</SelectItem>
                   <SelectItem value="one_time">Único</SelectItem>
@@ -938,34 +1015,35 @@ export function ProjectionDashboard() {
               </Select>
             </div>
             <div className="min-w-0 space-y-2 xl:col-span-2">
-              <Label>Desde</Label>
+              <Label htmlFor="scenario-item-start-month">Desde</Label>
               <Select value={itemForm.startMonth} onValueChange={(value) => setItemForm({ ...itemForm, startMonth: value })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="scenario-item-start-month"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {months.map((month) => <SelectItem key={month} value={String(month)}>{getMonthName(month)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="min-w-0 space-y-2 xl:col-span-1">
-              <Label>Año</Label>
-              <Input type="number" value={itemForm.startYear} onChange={(event) => setItemForm({ ...itemForm, startYear: event.target.value })} />
+              <Label htmlFor="scenario-item-start-year">Año</Label>
+              <Input id="scenario-item-start-year" type="number" value={itemForm.startYear} onChange={(event) => setItemForm({ ...itemForm, startYear: event.target.value })} />
             </div>
             <div className="min-w-0 space-y-2 xl:col-span-2">
-              <Label>Hasta</Label>
+              <Label htmlFor="scenario-item-end-month">Hasta</Label>
               <Select
                 value={itemForm.frequency === "one_time" ? itemForm.startMonth : itemForm.endMonth}
                 disabled={itemForm.frequency === "one_time"}
                 onValueChange={(value) => setItemForm({ ...itemForm, endMonth: value })}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="scenario-item-end-month"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {months.map((month) => <SelectItem key={month} value={String(month)}>{getMonthName(month)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="min-w-0 space-y-2 xl:col-span-1">
-              <Label>Año fin</Label>
+              <Label htmlFor="scenario-item-end-year">Año fin</Label>
               <Input
+                id="scenario-item-end-year"
                 type="number"
                 value={itemForm.frequency === "one_time" ? itemForm.startYear : itemForm.endYear}
                 disabled={itemForm.frequency === "one_time"}
@@ -978,7 +1056,7 @@ export function ProjectionDashboard() {
                 {editingScenarioItem ? "Guardar" : "Ítem"}
               </Button>
               {editingScenarioItem && (
-                <Button type="button" variant="outline" size="icon" onClick={resetItemForm} disabled={isSubmitting}>
+                <Button type="button" variant="outline" size="icon" onClick={resetItemForm} disabled={isSubmitting} aria-label="Cancelar edición del ítem">
                   <X className="h-4 w-4" />
                 </Button>
               )}
@@ -987,7 +1065,7 @@ export function ProjectionDashboard() {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="min-w-0 space-y-2">
-              <Label>Categoría opcional</Label>
+              <Label htmlFor="scenario-item-category">Categoría opcional</Label>
               <Select
                 value={itemForm.categoryId}
                 onValueChange={(value) => {
@@ -999,7 +1077,7 @@ export function ProjectionDashboard() {
                   })
                 }}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="scenario-item-category"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none">Sin categoría</SelectItem>
                   {(categories || []).filter((category) => category.type === "expense").map((category) => (
@@ -1009,9 +1087,9 @@ export function ProjectionDashboard() {
               </Select>
             </div>
             <div className="min-w-0 space-y-2">
-              <Label>Grupo opcional</Label>
+              <Label htmlFor="scenario-item-group">Grupo opcional</Label>
               <Select value={itemForm.groupId} onValueChange={(value) => setItemForm({ ...itemForm, groupId: value })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="scenario-item-group"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none">Sin grupo</SelectItem>
                   {(groups || []).map((group) => (
@@ -1023,6 +1101,12 @@ export function ProjectionDashboard() {
           </div>
 
           <div className="grid gap-3 lg:grid-cols-2">
+            {(scenarios || []).length === 0 ? (
+              <div className="rounded-md border border-dashed p-6 text-center lg:col-span-2">
+                <p className="font-medium">Todavía no hay escenarios</p>
+                <p className="mt-1 text-sm text-muted-foreground">Creá uno arriba o empezá con una plantilla para comparar una decisión futura.</p>
+              </div>
+            ) : null}
             {(scenarios || []).map((scenario) => (
               <div key={scenario.id} className="rounded-md border p-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1035,7 +1119,7 @@ export function ProjectionDashboard() {
                     <Button type="button" size="sm" variant={scenario.is_active ? "secondary" : "outline"} onClick={() => toggleScenario(scenario)}>
                       {scenario.is_active ? "Activo" : "Inactivo"}
                     </Button>
-                    <Button type="button" size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeletingScenario(scenario)}>
+                    <Button type="button" size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeletingScenario(scenario)} aria-label={`Eliminar escenario ${scenario.name}`}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -1050,10 +1134,10 @@ export function ProjectionDashboard() {
                         </div>
                         <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
                           <span className="min-w-0 font-mono">{formatCurrency(Number(item.amount), currency)}</span>
-                          <Button type="button" size="icon-sm" variant="ghost" onClick={() => editScenarioItem(scenario, item)}>
+                          <Button type="button" size="icon-sm" variant="ghost" onClick={() => editScenarioItem(scenario, item)} aria-label={`Editar ${item.name}`}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button type="button" size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => deleteScenarioItem(scenario.id, item.id)}>
+                          <Button type="button" size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => deleteScenarioItem(scenario.id, item.id)} aria-label={`Eliminar ${item.name}`}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>

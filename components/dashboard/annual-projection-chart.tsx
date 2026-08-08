@@ -76,7 +76,10 @@ export function AnnualProjectionChart({
     d => d.month === currentMonth && d.year === currentYear
   )
   const [activePoint, setActivePoint] = useState<ChartPoint | null>(null)
-  const detailPoint = activePoint || chartData[currentIndex] || chartData[0] || null
+  const validActivePoint = activePoint && chartData.some((point) => point.month === activePoint.month && point.year === activePoint.year)
+    ? activePoint
+    : null
+  const detailPoint = validActivePoint || chartData[currentIndex] || chartData[0] || null
 
   const formatValue = (value: number) => {
     if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
@@ -156,6 +159,24 @@ export function AnnualProjectionChart({
           <div className="rounded-md border bg-muted/30 p-4">
             {detailPoint ? (
               <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="projection-chart-month" className="text-xs font-medium text-muted-foreground">Detalle del mes</label>
+                  <select
+                    id="projection-chart-month"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={`${detailPoint.year}-${detailPoint.month}`}
+                    onChange={(event) => {
+                      const nextPoint = chartData.find((point) => `${point.year}-${point.month}` === event.target.value)
+                      if (nextPoint) setActivePoint(nextPoint)
+                    }}
+                  >
+                    {chartData.map((point) => (
+                      <option key={`${point.year}-${point.month}`} value={`${point.year}-${point.month}`}>
+                        {getMonthName(point.month)} {point.year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div>
                   <p className="text-xs text-muted-foreground">{detailPoint.year}</p>
                   <h3 className="text-lg font-semibold">{getMonthName(detailPoint.month)}</h3>

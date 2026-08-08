@@ -38,7 +38,7 @@ export function MonthYearSelector({ month, year, onChange }: MonthYearSelectorPr
 
   return (
     <div className="flex min-w-0 items-center gap-1 sm:gap-2">
-      <Button variant="ghost" size="icon-sm" onClick={handlePrevMonth} className="shrink-0">
+      <Button variant="ghost" size="icon-sm" onClick={handlePrevMonth} className="shrink-0" aria-label="Mes anterior">
         <ChevronLeft className="h-4 w-4" />
       </Button>
       
@@ -78,7 +78,7 @@ export function MonthYearSelector({ month, year, onChange }: MonthYearSelectorPr
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Button variant="ghost" size="icon-sm" onClick={handleNextMonth} className="shrink-0">
+      <Button variant="ghost" size="icon-sm" onClick={handleNextMonth} className="shrink-0" aria-label="Mes siguiente">
         <ChevronRight className="h-4 w-4" />
       </Button>
     </div>

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useEffect } from "react"
 import useSWR, { mutate } from "swr"
 import { invalidateCaches } from "@/lib/swr-cache"
+import { getMonthRange } from "@/lib/currency"
 import { useDashboard } from "./dashboard-context"
 import type {
   Transaction,
@@ -352,17 +353,28 @@ export function useMonthlyTransactions() {
   }
 }
 
-export function useYearlyTransactions() {
+type TransactionRange = {
+  fromMonth: number
+  fromYear: number
+  toMonth: number
+  toYear: number
+}
+
+export function useYearlyTransactions(range?: TransactionRange) {
   const { selectedMonth, selectedYear } = useDashboard()
   const { data: visibility } = useFamilyVisibility()
   const visibilityScope = getVisibilityScope(visibility)
   const projectionEnd = new Date(selectedYear, selectedMonth + 11, 0)
-  const endDate = projectionEnd.toISOString().split("T")[0]
+  const fallbackEnd = { year: projectionEnd.getFullYear(), month: projectionEnd.getMonth() + 1 }
+  const fromDate = range ? getMonthRange(range.fromMonth, range.fromYear).start : null
+  const endDate = range
+    ? getMonthRange(range.toMonth, range.toYear).end
+    : getMonthRange(fallbackEnd.month, fallbackEnd.year).end
 
   const result = useSWR<Transaction[]>(
-    visibilityScope ? ["transactions-year", selectedYear, selectedMonth, endDate, visibilityScope] : null,
+    visibilityScope ? ["transactions-year", fromDate, endDate, visibilityScope] : null,
     async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("transactions")
         .select(`
           *,
@@ -374,6 +386,10 @@ export function useYearlyTransactions() {
         .is("archived_at", null)
         .lte("transaction_date", endDate)
         .order("transaction_date", { ascending: false })
+
+      if (fromDate) query = query.gte("transaction_date", fromDate)
+
+      const { data, error } = await query
       if (error) throw error
       return data || []
     }
