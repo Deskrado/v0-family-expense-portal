@@ -46,9 +46,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { formatCompactCurrency, formatCurrency, getCurrentMonth, getCurrentYear, getMonthName } from "@/lib/currency"
-import { buildAnnualProjection, getProjectionAlerts } from "@/lib/projection-engine"
+import { applyMonthlyClosures, buildAnnualProjection, getProjectionAlerts } from "@/lib/projection-engine"
 import { getWealthBreakdown } from "@/lib/wealth-summary"
-import type { ProjectionScenario, ProjectionScenarioItem } from "@/lib/types"
+import type { Category, Group, ProjectionScenario, ProjectionScenarioItem, Transaction } from "@/lib/types"
 import { AlertTriangle, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Loader2, Minus, Pencil, Plus, RotateCcw, Trash2, TrendingDown, TrendingUp, X } from "lucide-react"
 import {
   CartesianGrid,
@@ -136,6 +136,62 @@ function ComparisonDelta({
   )
 }
 
+function getExpenseTotalsByCategory({
+  transactions,
+  categories,
+  groups,
+  year,
+  month,
+  categoryId,
+  groupId,
+}: {
+  transactions: Transaction[] | undefined
+  categories: Category[] | undefined
+  groups: Group[] | undefined
+  year: number
+  month: number
+  categoryId: string
+  groupId: string
+}) {
+  const categoryById = new Map((categories || []).map((category) => [category.id, category]))
+  const groupById = new Map((groups || []).map((group) => [group.id, group]))
+  const totals = new Map<string, { name: string; groupName: string; amount: number }>()
+
+  for (const transaction of transactions || []) {
+    const [transactionYear, transactionMonth] = transaction.transaction_date.split("-").map(Number)
+    if (transaction.type !== "expense" || transaction.status === "pending" || transaction.status === "rejected") continue
+    if (transactionYear !== year || transactionMonth !== month) continue
+
+    const category = transaction.category_id ? categoryById.get(transaction.category_id) : null
+    const effectiveGroupId = transaction.group_id || category?.group_id || null
+    if (categoryId !== "__all" && transaction.category_id !== categoryId) continue
+    if (groupId !== "__all" && effectiveGroupId !== groupId) continue
+
+    const key = transaction.category_id || "__uncategorized"
+    const current = totals.get(key) || {
+      name: category?.name || "Sin categoría",
+      groupName: effectiveGroupId ? groupById.get(effectiveGroupId)?.name || "Sin grupo" : "Sin grupo",
+      amount: 0,
+    }
+    current.amount += Number(transaction.amount || 0)
+    totals.set(key, current)
+  }
+
+  return totals
+}
+
+function matchesExpenseFilters(
+  categoryId: string | null | undefined,
+  groupId: string | null | undefined,
+  selectedCategoryId: string,
+  selectedGroupId: string,
+  categoryById: Map<string, Category>,
+) {
+  const effectiveGroupId = groupId || (categoryId ? categoryById.get(categoryId)?.group_id : null)
+  return (selectedCategoryId === "__all" || categoryId === selectedCategoryId) &&
+    (selectedGroupId === "__all" || effectiveGroupId === selectedGroupId)
+}
+
 const emptyScenarioForm: ScenarioForm = {
   name: "",
   description: "",
@@ -198,6 +254,15 @@ export function ProjectionDashboard() {
   const [today] = useState(() => ({ month: getCurrentMonth(), year: getCurrentYear() }))
   const [rangeMode, setRangeMode] = useState<ProjectionRangeMode>("trailing")
   const [comparisonEnabled, setComparisonEnabled] = useState(true)
+  const [selectedCategoryId, setSelectedCategoryId] = useState("__all")
+  const [selectedGroupId, setSelectedGroupId] = useState("__all")
+  const [analysisPeriod, setAnalysisPeriod] = useState(`${selectedYear}-${selectedMonth}`)
+  const rangeStart = rangeMode === "trailing"
+    ? addMonths(selectedYear, selectedMonth, -11)
+    : { month: selectedMonth, year: selectedYear }
+  const rangeEnd = addMonths(rangeStart.year, rangeStart.month, 11)
+  const comparisonStart = addMonths(rangeStart.year, rangeStart.month, -12)
+  const comparisonEnd = addMonths(rangeEnd.year, rangeEnd.month, -12)
   const defaultProjectionEnd = addMonths(selectedYear, selectedMonth, 11)
   const [scenarioForm, setScenarioForm] = useState<ScenarioForm>(emptyScenarioForm)
   const [selectedScenarioId, setSelectedScenarioId] = useState("")
@@ -229,13 +294,22 @@ export function ProjectionDashboard() {
     }))
   }, [selectedMonth, selectedYear])
 
+  useEffect(() => {
+    setAnalysisPeriod(`${selectedYear}-${selectedMonth}`)
+  }, [selectedMonth, selectedYear])
+
   const { data: yearlyTransactions, isLoading: transactionsLoading } = useYearlyTransactions()
   const { data: purchases, isLoading: purchasesLoading } = useCreditCardPurchases()
   const { data: recurringIncomeTemplates } = useRecurringIncomeTemplates()
   const { data: categories } = useCategories()
   const { data: groups } = useGroups()
   const { data: scenarios, isLoading: scenariosLoading } = useProjectionScenarios()
-  const { data: closures } = useMonthlyClosures()
+  const { data: closures } = useMonthlyClosures({
+    fromMonth: comparisonStart.month,
+    fromYear: comparisonStart.year,
+    toMonth: rangeEnd.month,
+    toYear: rangeEnd.year,
+  })
   const { data: currencies } = useCurrencies()
   const { data: settings } = useUserSettings()
   const { data: investments } = useInvestments()
@@ -247,14 +321,48 @@ export function ProjectionDashboard() {
   const months = Array.from({ length: 12 }, (_, index) => index + 1)
   const selectedScenario = (scenarios || []).find((scenario) => scenario.id === selectedScenarioId) || scenarios?.[0] || null
   const isLoading = transactionsLoading || purchasesLoading || scenariosLoading
-  const rangeStart = rangeMode === "trailing"
-    ? addMonths(selectedYear, selectedMonth, -11)
-    : { month: selectedMonth, year: selectedYear }
-  const rangeEnd = addMonths(rangeStart.year, rangeStart.month, 11)
-  const comparisonStart = addMonths(rangeStart.year, rangeStart.month, -12)
-  const comparisonEnd = addMonths(rangeEnd.year, rangeEnd.month, -12)
+  const hasExpenseFilters = selectedCategoryId !== "__all" || selectedGroupId !== "__all"
+  const categoryById = useMemo(() => new Map((categories || []).map((category) => [category.id, category])), [categories])
+  const expenseFilterCategories = (categories || []).filter((category) =>
+    category.type === "expense" && (selectedGroupId === "__all" || category.group_id === selectedGroupId)
+  )
+  const filteredTransactions = useMemo(() => (yearlyTransactions || []).filter((transaction) =>
+    transaction.type === "income" || matchesExpenseFilters(
+      transaction.category_id,
+      transaction.group_id,
+      selectedCategoryId,
+      selectedGroupId,
+      categoryById,
+    )
+  ), [categoryById, selectedCategoryId, selectedGroupId, yearlyTransactions])
+  const filteredPurchases = useMemo(() => (purchases || []).filter((purchase) => matchesExpenseFilters(
+    purchase.category_id,
+    purchase.category?.group_id,
+    selectedCategoryId,
+    selectedGroupId,
+    categoryById,
+  )), [categoryById, purchases, selectedCategoryId, selectedGroupId])
+  const filteredCategories = useMemo(() => (categories || []).filter((category) =>
+    category.type !== "expense" || matchesExpenseFilters(
+      category.id,
+      category.group_id,
+      selectedCategoryId,
+      selectedGroupId,
+      categoryById,
+    )
+  ), [categories, categoryById, selectedCategoryId, selectedGroupId])
+  const filteredScenarios = useMemo(() => (scenarios || []).map((scenario) => ({
+    ...scenario,
+    items: (scenario.items || []).filter((item) => matchesExpenseFilters(
+      item.category_id,
+      item.group_id,
+      selectedCategoryId,
+      selectedGroupId,
+      categoryById,
+    )),
+  })), [categoryById, scenarios, selectedCategoryId, selectedGroupId])
 
-  const monthlyData = useMemo(() => buildAnnualProjection({
+  const baseMonthlyData = useMemo(() => buildAnnualProjection({
     year: today.year,
     selectedMonth: today.month,
     asOfMonth: today.month,
@@ -262,13 +370,17 @@ export function ProjectionDashboard() {
     startMonth: rangeStart.month,
     startYear: rangeStart.year,
     monthsAhead: 12,
-    transactions: yearlyTransactions,
-    purchases,
+    transactions: filteredTransactions,
+    purchases: filteredPurchases,
     recurringIncomeTemplates,
-    categories,
-    scenarios,
-  }), [categories, purchases, rangeStart.month, rangeStart.year, recurringIncomeTemplates, scenarios, today.month, today.year, yearlyTransactions])
-  const comparisonData = useMemo(() => buildAnnualProjection({
+    categories: filteredCategories,
+    scenarios: filteredScenarios,
+  }), [filteredCategories, filteredPurchases, filteredScenarios, filteredTransactions, rangeStart.month, rangeStart.year, recurringIncomeTemplates, today.month, today.year])
+  const monthlyData = useMemo(() => applyMonthlyClosures(
+    baseMonthlyData,
+    hasExpenseFilters ? [] : closures,
+  ), [baseMonthlyData, closures, hasExpenseFilters])
+  const baseComparisonData = useMemo(() => buildAnnualProjection({
     year: today.year,
     selectedMonth: today.month,
     asOfMonth: today.month,
@@ -276,12 +388,16 @@ export function ProjectionDashboard() {
     startMonth: comparisonStart.month,
     startYear: comparisonStart.year,
     monthsAhead: 12,
-    transactions: yearlyTransactions,
-    purchases,
+    transactions: filteredTransactions,
+    purchases: filteredPurchases,
     recurringIncomeTemplates,
-    categories,
-    scenarios,
-  }), [categories, comparisonStart.month, comparisonStart.year, purchases, recurringIncomeTemplates, scenarios, today.month, today.year, yearlyTransactions])
+    categories: filteredCategories,
+    scenarios: filteredScenarios,
+  }), [comparisonStart.month, comparisonStart.year, filteredCategories, filteredPurchases, filteredScenarios, filteredTransactions, recurringIncomeTemplates, today.month, today.year])
+  const comparisonData = useMemo(() => applyMonthlyClosures(
+    baseComparisonData,
+    hasExpenseFilters ? [] : closures,
+  ), [baseComparisonData, closures, hasExpenseFilters])
   const annualMonthlyData = useMemo(() => buildAnnualProjection({
     year: today.year,
     selectedMonth: today.month,
@@ -304,6 +420,42 @@ export function ProjectionDashboard() {
   const comparisonSavingsTotal = comparisonData.reduce((total, item) => total + item.savings, 0)
   const comparisonExpensesTotal = comparisonData.reduce((total, item) => total + item.expenses, 0)
   const comparisonSimulatedSavingsTotal = comparisonData.reduce((total, item) => total + item.simulatedSavings, 0)
+  const [analysisYear, analysisMonth] = analysisPeriod.split("-").map(Number)
+  const previousAnalysisPeriod = addMonths(analysisYear, analysisMonth, -12)
+  const currentExpenseTotals = useMemo(() => getExpenseTotalsByCategory({
+    transactions: yearlyTransactions,
+    categories,
+    groups,
+    year: analysisYear,
+    month: analysisMonth,
+    categoryId: selectedCategoryId,
+    groupId: selectedGroupId,
+  }), [analysisMonth, analysisYear, categories, groups, selectedCategoryId, selectedGroupId, yearlyTransactions])
+  const previousExpenseTotals = useMemo(() => getExpenseTotalsByCategory({
+    transactions: yearlyTransactions,
+    categories,
+    groups,
+    year: previousAnalysisPeriod.year,
+    month: previousAnalysisPeriod.month,
+    categoryId: selectedCategoryId,
+    groupId: selectedGroupId,
+  }), [categories, groups, previousAnalysisPeriod.month, previousAnalysisPeriod.year, selectedCategoryId, selectedGroupId, yearlyTransactions])
+  const expenseBreakdown = useMemo(() => {
+    const categoryIds = new Set([...currentExpenseTotals.keys(), ...previousExpenseTotals.keys()])
+    return Array.from(categoryIds).map((categoryId) => {
+      const current = currentExpenseTotals.get(categoryId)
+      const previous = previousExpenseTotals.get(categoryId)
+      return {
+        categoryId,
+        name: current?.name || previous?.name || "Sin categoría",
+        groupName: current?.groupName || previous?.groupName || "Sin grupo",
+        current: current?.amount || 0,
+        previous: previous?.amount || 0,
+        change: getPercentChange(current?.amount || 0, previous?.amount || 0),
+      }
+    }).sort((a, b) => b.current - a.current)
+  }, [currentExpenseTotals, previousExpenseTotals])
+  const closedBaselineCount = monthlyData.filter((point) => point.isClosed).length
   const selectedMonthPoint = monthlyData.find((item) => item.year === selectedYear && item.month === selectedMonth) || monthlyData[0]
   const closedMonth = closures?.find((closure) => closure.year === selectedYear && closure.month === selectedMonth) || null
   const alerts = getProjectionAlerts(monthlyData.filter((point) => point.periodType !== "actual"), Number(settings?.notify_budget_threshold || 80))
@@ -598,6 +750,52 @@ export function ProjectionDashboard() {
                 comparado con {formatPeriodRange(comparisonStart, comparisonEnd)}
               </span>
             ) : null}
+          </div>
+          <div className="grid gap-4 border-t pt-4 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+            <div className="space-y-2">
+              <Label htmlFor="projection-group-filter">Grupo de gasto</Label>
+              <Select
+                value={selectedGroupId}
+                onValueChange={(value) => {
+                  setSelectedGroupId(value)
+                  const selectedCategory = categoryById.get(selectedCategoryId)
+                  if (value !== "__all" && selectedCategory?.group_id !== value) setSelectedCategoryId("__all")
+                }}
+              >
+                <SelectTrigger id="projection-group-filter"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all">Todos los grupos</SelectItem>
+                  {(groups || []).map((group) => <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="projection-category-filter">Categoría de gasto</Label>
+              <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
+                <SelectTrigger id="projection-category-filter"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all">Todas las categorías</SelectItem>
+                  {expenseFilterCategories.map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setSelectedCategoryId("__all")
+                setSelectedGroupId("__all")
+              }}
+              disabled={!hasExpenseFilters}
+            >
+              <X className="mr-2 h-4 w-4" aria-hidden="true" />
+              Limpiar filtros
+            </Button>
+            <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-3">
+              {hasExpenseFilters
+                ? "Los filtros acotan los gastos; los ingresos permanecen totales. Los cierres se omiten porque no guardan desglose por categoría."
+                : `${closedBaselineCount} cierre(s) mensual(es) usados como baseline real en el período visible.`}
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -894,8 +1092,8 @@ export function ProjectionDashboard() {
                     <TableRow key={`${item.year}-${item.month}`}>
                       <TableCell className="font-medium">{getMonthName(item.month)} {item.year}</TableCell>
                       <TableCell>
-                        <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${item.periodType === "actual" ? "bg-muted text-muted-foreground" : item.periodType === "current" ? "bg-primary/10 text-primary" : "bg-amber-100 text-amber-800"}`}>
-                          {item.periodType === "actual" ? "Real" : item.periodType === "current" ? "Mes actual" : "Estimado"}
+                        <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${item.isClosed ? "bg-success/10 text-success" : item.periodType === "actual" ? "bg-muted text-muted-foreground" : item.periodType === "current" ? "bg-primary/10 text-primary" : "bg-amber-100 text-amber-800"}`}>
+                          {item.isClosed ? "Cerrado" : item.periodType === "actual" ? "Real" : item.periodType === "current" ? "Mes actual" : "Estimado"}
                         </span>
                       </TableCell>
                       <TableCell className="text-right font-mono">{formatCurrency(item.income, currency)}</TableCell>
@@ -938,6 +1136,62 @@ export function ProjectionDashboard() {
               </Table>
             </div>
           </TooltipProvider>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <CardTitle>Análisis de gastos por categoría</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">Movimientos reales comparados con el mismo mes del año anterior.</p>
+          </div>
+          <div className="w-full space-y-2 sm:w-[220px]">
+            <Label htmlFor="expense-analysis-period">Mes analizado</Label>
+            <Select value={analysisPeriod} onValueChange={setAnalysisPeriod}>
+              <SelectTrigger id="expense-analysis-period"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {monthlyData.map((item) => (
+                  <SelectItem key={`${item.year}-${item.month}`} value={`${item.year}-${item.month}`}>
+                    {getMonthName(item.month)} {item.year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {expenseBreakdown.length === 0 ? (
+            <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+              No hay gastos reales para este mes y los filtros seleccionados.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table className="min-w-[680px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Categoría</TableHead>
+                    <TableHead>Grupo</TableHead>
+                    <TableHead className="text-right">{getMonthName(analysisMonth, true)} {analysisYear}</TableHead>
+                    <TableHead className="text-right">{getMonthName(previousAnalysisPeriod.month, true)} {previousAnalysisPeriod.year}</TableHead>
+                    <TableHead className="text-right">Variación</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {expenseBreakdown.map((item) => (
+                    <TableRow key={item.categoryId}>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{item.groupName}</TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(item.current, currency)}</TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(item.previous, currency)}</TableCell>
+                      <TableCell className={`text-right font-mono ${item.change === null || item.change === 0 ? "text-muted-foreground" : item.change < 0 ? "text-success" : "text-destructive"}`}>
+                        {item.change === null ? "Sin base" : `${item.change > 0 ? "+" : ""}${item.change.toFixed(1)}%`}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -4,6 +4,7 @@ import { getRecurringProjectionForMonth } from "@/lib/recurring-projection"
 import type {
   Category,
   CreditCardPurchase,
+  MonthlyClosure,
   ProjectionScenario,
   ProjectionScenarioItem,
   RecurringIncomeTemplate,
@@ -29,6 +30,7 @@ export type MonthlyProjectionPoint = {
   simulatedCumulativeSavings: number
   activeScenarioItems: ProjectionScenarioItem[]
   periodType: "actual" | "current" | "projected"
+  isClosed: boolean
 }
 
 type BuildProjectionInput = {
@@ -157,6 +159,7 @@ export function buildAnnualProjection({
       simulatedCumulativeSavings: 0,
       activeScenarioItems: [],
       periodType: isHistorical ? "actual" : monthIndex === asOfIndex ? "current" : "projected",
+      isClosed: false,
     }
 
     for (const transaction of transactions || []) {
@@ -242,6 +245,41 @@ export function buildAnnualProjection({
     point.simulatedCumulativeSavings = simulatedCumulativeSavings
 
     return point
+  })
+}
+
+export function applyMonthlyClosures(points: MonthlyProjectionPoint[], closures: MonthlyClosure[] | undefined) {
+  const closureByPeriod = new Map(
+    (closures || []).map((closure) => [getPeriodIndex(closure.year, closure.month), closure]),
+  )
+  let cumulativeSavings = 0
+  let simulatedCumulativeSavings = 0
+
+  return points.map((point) => {
+    const closure = closureByPeriod.get(getPeriodIndex(point.year, point.month))
+    const closedPoint = closure && point.periodType === "actual"
+      ? {
+          ...point,
+          income: Number(closure.income_total || 0),
+          expenses: Number(closure.expense_total || 0),
+          actualIncome: Number(closure.income_total || 0),
+          actualExpenses: Number(closure.expense_total || 0),
+          simulatedExpenses: Number(closure.expense_total || 0),
+          savings: Number(closure.savings_total || 0),
+          simulatedSavings: Number(closure.savings_total || 0),
+          scenarioImpact: 0,
+          activeScenarioItems: [],
+          isClosed: true,
+        }
+      : point
+
+    cumulativeSavings += closedPoint.savings
+    simulatedCumulativeSavings += closedPoint.simulatedSavings
+    return {
+      ...closedPoint,
+      cumulativeSavings,
+      simulatedCumulativeSavings,
+    }
   })
 }
 

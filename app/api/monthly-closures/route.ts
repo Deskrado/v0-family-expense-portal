@@ -22,19 +22,56 @@ export async function GET(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
 
-    const year = Number(request.nextUrl.searchParams.get("year") || new Date().getFullYear())
+    const yearParam = request.nextUrl.searchParams.get("year")
+    const fromYearParam = request.nextUrl.searchParams.get("fromYear")
+    const fromMonthParam = request.nextUrl.searchParams.get("fromMonth")
+    const toYearParam = request.nextUrl.searchParams.get("toYear")
+    const toMonthParam = request.nextUrl.searchParams.get("toMonth")
+    const fromYear = Number(fromYearParam)
+    const fromMonth = Number(fromMonthParam)
+    const toYear = Number(toYearParam)
+    const toMonth = Number(toMonthParam)
+    const rangeParams = [fromYearParam, fromMonthParam, toYearParam, toMonthParam]
+    const providedRangeParams = rangeParams.filter((value) => value !== null).length
+    const hasRange = providedRangeParams === rangeParams.length &&
+      [fromYear, fromMonth, toYear, toMonth].every(Number.isFinite)
+    const year = Number(yearParam || new Date().getFullYear())
+
+    if (providedRangeParams > 0 && !hasRange) {
+      return NextResponse.json({ error: "Rango incompleto" }, { status: 400 })
+    }
+
+    if (hasRange) {
+      const fromIndex = fromYear * 12 + fromMonth
+      const toIndex = toYear * 12 + toMonth
+      if (fromYear < 2000 || fromYear > 2100 || toYear < 2000 || toYear > 2100 || fromMonth < 1 || fromMonth > 12 || toMonth < 1 || toMonth > 12 || fromIndex > toIndex) {
+        return NextResponse.json({ error: "Rango inválido" }, { status: 400 })
+      }
+    }
+
     let query = supabase
       .from("monthly_closures")
       .select("*")
       .order("year", { ascending: false })
       .order("month", { ascending: false })
 
-    if (Number.isFinite(year)) query = query.eq("year", year)
+    if (hasRange) {
+      query = query.gte("year", fromYear).lte("year", toYear)
+    } else if (Number.isFinite(year)) {
+      query = query.eq("year", year)
+    }
 
     const { data, error } = await query
     if (error) throw error
 
-    return NextResponse.json({ closures: data || [] })
+    const closures = hasRange
+      ? (data || []).filter((closure) => {
+          const periodIndex = closure.year * 12 + closure.month
+          return periodIndex >= fromYear * 12 + fromMonth && periodIndex <= toYear * 12 + toMonth
+        })
+      : data || []
+
+    return NextResponse.json({ closures })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Error al obtener cierres" },

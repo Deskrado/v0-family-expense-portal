@@ -608,12 +608,23 @@ export function useUserSettings() {
   })
 }
 
-export function useMonthlyClosures() {
+type MonthlyClosureRange = {
+  fromMonth: number
+  fromYear: number
+  toMonth: number
+  toYear: number
+}
+
+export function useMonthlyClosures(range?: MonthlyClosureRange) {
   const { selectedYear } = useDashboard()
   const { data: visibility } = useFamilyVisibility()
   const visibilityScope = getVisibilityScope(visibility)
-  return useSWR<MonthlyClosure[]>(visibilityScope ? ["monthly-closures", selectedYear, visibilityScope] : null, async () => {
-    const response = await fetch(`/api/monthly-closures?year=${selectedYear}`)
+  const query = range
+    ? `fromYear=${range.fromYear}&fromMonth=${range.fromMonth}&toYear=${range.toYear}&toMonth=${range.toMonth}`
+    : `year=${selectedYear}`
+
+  return useSWR<MonthlyClosure[]>(visibilityScope ? ["monthly-closures", query, visibilityScope] : null, async () => {
+    const response = await fetch(`/api/monthly-closures?${query}`)
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(payload.error || "Error al obtener cierres")
     return payload.closures || []

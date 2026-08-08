@@ -22,6 +22,7 @@ interface MonthlyData {
   expenses: number
   savings: number
   periodType?: 'actual' | 'current' | 'projected'
+  isClosed?: boolean
 }
 
 interface AnnualProjectionChartProps {
@@ -45,6 +46,7 @@ type ChartPoint = {
   GastosAnterior?: number
   isProjected: boolean
   periodType: 'actual' | 'current' | 'projected'
+  isClosed: boolean
 }
 
 export function AnnualProjectionChart({ 
@@ -67,6 +69,7 @@ export function AnnualProjectionChart({
     GastosAnterior: comparisonData?.[index]?.expenses,
     isProjected: item.year > currentYear || (item.year === currentYear && item.month > currentMonth),
     periodType: item.periodType || (item.year > currentYear || (item.year === currentYear && item.month > currentMonth) ? 'projected' : 'actual'),
+    isClosed: item.isClosed || false,
   })), [comparisonData, currentMonth, currentYear, data])
 
   const currentIndex = chartData.findIndex(
@@ -156,8 +159,8 @@ export function AnnualProjectionChart({
                 <div>
                   <p className="text-xs text-muted-foreground">{detailPoint.year}</p>
                   <h3 className="text-lg font-semibold">{getMonthName(detailPoint.month)}</h3>
-                  <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs font-medium ${detailPoint.periodType === 'actual' ? 'bg-muted text-muted-foreground' : detailPoint.periodType === 'current' ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-800'}`}>
-                    {detailPoint.periodType === 'actual' ? 'Real' : detailPoint.periodType === 'current' ? 'Mes actual' : 'Estimado'}
+                  <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs font-medium ${detailPoint.isClosed ? 'bg-success/10 text-success' : detailPoint.periodType === 'actual' ? 'bg-muted text-muted-foreground' : detailPoint.periodType === 'current' ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-800'}`}>
+                    {detailPoint.isClosed ? 'Cerrado' : detailPoint.periodType === 'actual' ? 'Real' : detailPoint.periodType === 'current' ? 'Mes actual' : 'Estimado'}
                   </span>
                 </div>
                 <div className="space-y-3 text-sm">
