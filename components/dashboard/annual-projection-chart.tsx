@@ -21,10 +21,13 @@ interface MonthlyData {
   income: number
   expenses: number
   savings: number
+  periodType?: 'actual' | 'current' | 'projected'
 }
 
 interface AnnualProjectionChartProps {
   data: MonthlyData[]
+  comparisonData?: MonthlyData[]
+  comparisonLabel?: string
   currentMonth: number
   currentYear: number
   currency: Currency | null
@@ -39,26 +42,32 @@ type ChartPoint = {
   Ingresos: number
   Gastos: number
   Ahorro: number
+  GastosAnterior?: number
   isProjected: boolean
+  periodType: 'actual' | 'current' | 'projected'
 }
 
 export function AnnualProjectionChart({ 
   data, 
+  comparisonData,
+  comparisonLabel = 'Gastos período anterior',
   currentMonth, 
   currentYear, 
   currency,
   title = 'Proyección anual',
   description = 'Ingresos, gastos y ahorro del período seleccionado',
 }: AnnualProjectionChartProps) {
-  const chartData = useMemo<ChartPoint[]>(() => data.map(item => ({
-    name: getMonthName(item.month, true),
+  const chartData = useMemo<ChartPoint[]>(() => data.map((item, index) => ({
+    name: `${getMonthName(item.month, true)} ${String(item.year).slice(-2)}`,
     month: item.month,
     year: item.year,
     Ingresos: item.income,
     Gastos: item.expenses,
     Ahorro: item.savings,
+    GastosAnterior: comparisonData?.[index]?.expenses,
     isProjected: item.year > currentYear || (item.year === currentYear && item.month > currentMonth),
-  })), [currentMonth, currentYear, data])
+    periodType: item.periodType || (item.year > currentYear || (item.year === currentYear && item.month > currentMonth) ? 'projected' : 'actual'),
+  })), [comparisonData, currentMonth, currentYear, data])
 
   const currentIndex = chartData.findIndex(
     d => d.month === currentMonth && d.year === currentYear
@@ -124,6 +133,14 @@ export function AnnualProjectionChart({
                   fill="hsl(0, 70%, 55%)"
                   radius={[4, 4, 0, 0]}
                 />
+                {comparisonData ? (
+                  <Bar
+                    dataKey="GastosAnterior"
+                    name={comparisonLabel}
+                    fill="hsl(0, 20%, 72%)"
+                    radius={[4, 4, 0, 0]}
+                  />
+                ) : null}
                 <Bar
                   dataKey="Ahorro"
                   fill="hsl(250, 60%, 55%)"
@@ -139,6 +156,9 @@ export function AnnualProjectionChart({
                 <div>
                   <p className="text-xs text-muted-foreground">{detailPoint.year}</p>
                   <h3 className="text-lg font-semibold">{getMonthName(detailPoint.month)}</h3>
+                  <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs font-medium ${detailPoint.periodType === 'actual' ? 'bg-muted text-muted-foreground' : detailPoint.periodType === 'current' ? 'bg-primary/10 text-primary' : 'bg-amber-100 text-amber-800'}`}>
+                    {detailPoint.periodType === 'actual' ? 'Real' : detailPoint.periodType === 'current' ? 'Mes actual' : 'Estimado'}
+                  </span>
                 </div>
                 <div className="space-y-3 text-sm">
                   <div className="flex items-center justify-between gap-3">
@@ -149,6 +169,12 @@ export function AnnualProjectionChart({
                     <span className="text-destructive">Gastos</span>
                     <span className="font-mono">{formatCurrency(detailPoint.Gastos, currency)}</span>
                   </div>
+                  {detailPoint.GastosAnterior !== undefined ? (
+                    <div className="flex items-center justify-between gap-3 text-muted-foreground">
+                      <span>Período anterior</span>
+                      <span className="font-mono">{formatCurrency(detailPoint.GastosAnterior, currency)}</span>
+                    </div>
+                  ) : null}
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-primary">Ahorro</span>
                     <span className="font-mono">{formatCurrency(detailPoint.Ahorro, currency)}</span>

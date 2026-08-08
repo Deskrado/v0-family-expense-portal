@@ -45,11 +45,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { formatCompactCurrency, formatCurrency, getMonthName } from "@/lib/currency"
+import { formatCompactCurrency, formatCurrency, getCurrentMonth, getCurrentYear, getMonthName } from "@/lib/currency"
 import { buildAnnualProjection, getProjectionAlerts } from "@/lib/projection-engine"
 import { getWealthBreakdown } from "@/lib/wealth-summary"
 import type { ProjectionScenario, ProjectionScenarioItem } from "@/lib/types"
-import { AlertTriangle, CalendarDays, CheckCircle2, Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
+import { AlertTriangle, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Loader2, Minus, Pencil, Plus, RotateCcw, Trash2, TrendingDown, TrendingUp, X } from "lucide-react"
 import {
   CartesianGrid,
   Legend,
@@ -95,12 +95,45 @@ type EditingScenarioItem = {
   itemId: string
 }
 
+type ProjectionRangeMode = "trailing" | "forward"
+
 function addMonths(year: number, month: number, offset: number) {
   const periodIndex = year * 12 + (month - 1) + offset
   return {
     month: (periodIndex % 12) + 1,
     year: Math.floor(periodIndex / 12),
   }
+}
+
+function formatPeriodRange(start: { year: number; month: number }, end: { year: number; month: number }) {
+  return `${getMonthName(start.month, true)} ${start.year} – ${getMonthName(end.month, true)} ${end.year}`
+}
+
+function getPercentChange(current: number, previous: number) {
+  if (previous === 0) return current === 0 ? 0 : null
+  return ((current - previous) / Math.abs(previous)) * 100
+}
+
+function ComparisonDelta({
+  current,
+  previous,
+  lowerIsBetter = false,
+}: {
+  current: number
+  previous: number
+  lowerIsBetter?: boolean
+}) {
+  const change = getPercentChange(current, previous)
+  const difference = current - previous
+  const isPositiveOutcome = lowerIsBetter ? difference < 0 : difference > 0
+  const Icon = difference === 0 ? Minus : difference > 0 ? TrendingUp : TrendingDown
+
+  return (
+    <p className={`mt-2 flex items-center gap-1 text-xs ${difference === 0 ? "text-muted-foreground" : isPositiveOutcome ? "text-success" : "text-destructive"}`}>
+      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+      {change === null ? "Sin base comparable" : `${change > 0 ? "+" : ""}${change.toFixed(1)}% vs. período anterior`}
+    </p>
+  )
 }
 
 const emptyScenarioForm: ScenarioForm = {
@@ -161,7 +194,10 @@ function scenarioItemLabel(item: ProjectionScenarioItem) {
 }
 
 export function ProjectionDashboard() {
-  const { selectedMonth, selectedYear } = useDashboard()
+  const { selectedMonth, selectedYear, setMonthYear } = useDashboard()
+  const [today] = useState(() => ({ month: getCurrentMonth(), year: getCurrentYear() }))
+  const [rangeMode, setRangeMode] = useState<ProjectionRangeMode>("trailing")
+  const [comparisonEnabled, setComparisonEnabled] = useState(true)
   const defaultProjectionEnd = addMonths(selectedYear, selectedMonth, 11)
   const [scenarioForm, setScenarioForm] = useState<ScenarioForm>(emptyScenarioForm)
   const [selectedScenarioId, setSelectedScenarioId] = useState("")
@@ -211,37 +247,66 @@ export function ProjectionDashboard() {
   const months = Array.from({ length: 12 }, (_, index) => index + 1)
   const selectedScenario = (scenarios || []).find((scenario) => scenario.id === selectedScenarioId) || scenarios?.[0] || null
   const isLoading = transactionsLoading || purchasesLoading || scenariosLoading
+  const rangeStart = rangeMode === "trailing"
+    ? addMonths(selectedYear, selectedMonth, -11)
+    : { month: selectedMonth, year: selectedYear }
+  const rangeEnd = addMonths(rangeStart.year, rangeStart.month, 11)
+  const comparisonStart = addMonths(rangeStart.year, rangeStart.month, -12)
+  const comparisonEnd = addMonths(rangeEnd.year, rangeEnd.month, -12)
 
   const monthlyData = useMemo(() => buildAnnualProjection({
-    year: selectedYear,
-    selectedMonth,
-    startMonth: selectedMonth,
-    startYear: selectedYear,
+    year: today.year,
+    selectedMonth: today.month,
+    asOfMonth: today.month,
+    asOfYear: today.year,
+    startMonth: rangeStart.month,
+    startYear: rangeStart.year,
     monthsAhead: 12,
     transactions: yearlyTransactions,
     purchases,
     recurringIncomeTemplates,
     categories,
     scenarios,
-  }), [categories, purchases, recurringIncomeTemplates, scenarios, selectedMonth, selectedYear, yearlyTransactions])
-  const annualMonthlyData = useMemo(() => buildAnnualProjection({
-    year: selectedYear,
-    selectedMonth,
+  }), [categories, purchases, rangeStart.month, rangeStart.year, recurringIncomeTemplates, scenarios, today.month, today.year, yearlyTransactions])
+  const comparisonData = useMemo(() => buildAnnualProjection({
+    year: today.year,
+    selectedMonth: today.month,
+    asOfMonth: today.month,
+    asOfYear: today.year,
+    startMonth: comparisonStart.month,
+    startYear: comparisonStart.year,
+    monthsAhead: 12,
     transactions: yearlyTransactions,
     purchases,
     recurringIncomeTemplates,
     categories,
     scenarios,
-  }), [categories, purchases, recurringIncomeTemplates, scenarios, selectedMonth, selectedYear, yearlyTransactions])
+  }), [categories, comparisonStart.month, comparisonStart.year, purchases, recurringIncomeTemplates, scenarios, today.month, today.year, yearlyTransactions])
+  const annualMonthlyData = useMemo(() => buildAnnualProjection({
+    year: today.year,
+    selectedMonth: today.month,
+    asOfMonth: today.month,
+    asOfYear: today.year,
+    startMonth: 1,
+    startYear: selectedYear,
+    transactions: yearlyTransactions,
+    purchases,
+    recurringIncomeTemplates,
+    categories,
+    scenarios,
+  }), [categories, purchases, recurringIncomeTemplates, scenarios, selectedYear, today.month, today.year, yearlyTransactions])
 
   const projectedTotal = monthlyData.reduce((total, item) => total + item.savings, 0)
   const projectedExpensesTotal = monthlyData.reduce((total, item) => total + item.expenses, 0)
   const essentialProjectionTotal = monthlyData.reduce((total, item) => total + item.essentialProjection, 0)
   const scenarioImpactTotal = monthlyData.reduce((total, item) => total + item.scenarioImpact, 0)
   const simulatedProjectedTotal = monthlyData.reduce((total, item) => total + item.simulatedSavings, 0)
+  const comparisonSavingsTotal = comparisonData.reduce((total, item) => total + item.savings, 0)
+  const comparisonExpensesTotal = comparisonData.reduce((total, item) => total + item.expenses, 0)
+  const comparisonSimulatedSavingsTotal = comparisonData.reduce((total, item) => total + item.simulatedSavings, 0)
   const selectedMonthPoint = monthlyData.find((item) => item.year === selectedYear && item.month === selectedMonth) || monthlyData[0]
   const closedMonth = closures?.find((closure) => closure.year === selectedYear && closure.month === selectedMonth) || null
-  const alerts = getProjectionAlerts(monthlyData, Number(settings?.notify_budget_threshold || 80))
+  const alerts = getProjectionAlerts(monthlyData.filter((point) => point.periodType !== "actual"), Number(settings?.notify_budget_threshold || 80))
   const negativeMonthsCount = monthlyData.filter((point) => point.simulatedSavings < 0).length
   const biggestExpenseMonth = monthlyData.reduce((current, item) => item.simulatedExpenses > current.simulatedExpenses ? item : current, monthlyData[0])
   const lowestLiquidityMonth = monthlyData.reduce((current, item) => item.simulatedSavings < current.simulatedSavings ? item : current, monthlyData[0])
@@ -273,6 +338,11 @@ export function ProjectionDashboard() {
 
   const refreshProjectionData = () => {
     invalidateCaches(["projection-scenarios", "monthly-closures"])
+  }
+
+  const moveRange = (offset: number) => {
+    const next = addMonths(selectedYear, selectedMonth, offset)
+    setMonthYear(next.month, next.year)
   }
 
   const resetItemForm = () => {
@@ -483,13 +553,63 @@ export function ProjectionDashboard() {
     <div className="space-y-6">
       {error && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
 
+      <Card>
+        <CardContent className="grid gap-4 pt-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+          <div className="space-y-2">
+            <Label htmlFor="projection-range-mode">Ventana</Label>
+            <Select value={rangeMode} onValueChange={(value) => setRangeMode(value as ProjectionRangeMode)}>
+              <SelectTrigger id="projection-range-mode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="trailing">Últimos 12 meses</SelectItem>
+                <SelectItem value="forward">12 meses hacia adelante</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="projection-comparison">Comparación</Label>
+            <Select value={comparisonEnabled ? "previous" : "none"} onValueChange={(value) => setComparisonEnabled(value === "previous")}>
+              <SelectTrigger id="projection-comparison">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="previous">Período anterior</SelectItem>
+                <SelectItem value="none">Sin comparación</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <Button type="button" variant="outline" size="icon" onClick={() => moveRange(-12)} aria-label="Ver período anterior">
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setMonthYear(today.month, today.year)}>
+              <RotateCcw className="mr-2 h-4 w-4" aria-hidden="true" />
+              Hoy
+            </Button>
+            <Button type="button" variant="outline" size="icon" onClick={() => moveRange(12)} aria-label="Ver período siguiente">
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
+          <div className="text-sm lg:col-span-3">
+            <span className="font-medium">{formatPeriodRange(rangeStart, rangeEnd)}</span>
+            {comparisonEnabled ? (
+              <span className="ml-2 text-muted-foreground">
+                comparado con {formatPeriodRange(comparisonStart, comparisonEnd)}
+              </span>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Ahorro proyectado base</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">{rangeMode === "trailing" ? "Ahorro del período" : "Ahorro proyectado base"}</CardTitle>
           </CardHeader>
           <CardContent className={`font-mono text-xl font-bold sm:text-2xl ${projectedTotal >= 0 ? "text-success" : "text-destructive"}`}>
             {formatCurrency(projectedTotal, currency)}
+            {comparisonEnabled ? <ComparisonDelta current={projectedTotal} previous={comparisonSavingsTotal} /> : null}
           </CardContent>
         </Card>
         <Card>
@@ -498,19 +618,21 @@ export function ProjectionDashboard() {
           </CardHeader>
           <CardContent className={`font-mono text-xl font-bold sm:text-2xl ${simulatedProjectedTotal >= 0 ? "text-success" : "text-destructive"}`}>
             {formatCurrency(simulatedProjectedTotal, currency)}
+            {comparisonEnabled ? <ComparisonDelta current={simulatedProjectedTotal} previous={comparisonSimulatedSavingsTotal} /> : null}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Gastos proyectados</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">{rangeMode === "trailing" ? "Gastos del período" : "Gastos proyectados"}</CardTitle>
           </CardHeader>
           <CardContent className="font-mono text-xl font-bold sm:text-2xl">
             {formatCurrency(projectedExpensesTotal, currency)}
+            {comparisonEnabled ? <ComparisonDelta current={projectedExpensesTotal} previous={comparisonExpensesTotal} lowerIsBetter /> : null}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Escenarios activos</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">Impacto de escenarios</CardTitle>
           </CardHeader>
           <CardContent className="font-mono text-xl font-bold sm:text-2xl">
             {formatCurrency(scenarioImpactTotal, currency)}
@@ -520,11 +642,13 @@ export function ProjectionDashboard() {
 
       <AnnualProjectionChart
         data={monthlyData}
-        currentMonth={selectedMonth}
-        currentYear={selectedYear}
+        comparisonData={comparisonEnabled ? comparisonData : undefined}
+        comparisonLabel="Gastos período anterior"
+        currentMonth={today.month}
+        currentYear={today.year}
         currency={currency}
-        title="Proyección a 12 meses"
-        description="Ingresos, gastos y ahorro desde el mes en curso"
+        title="Histórico y proyección · 12 meses"
+        description={`${formatPeriodRange(rangeStart, rangeEnd)} · real hasta hoy, estimado hacia adelante`}
       />
 
       <Card>
@@ -752,10 +876,11 @@ export function ProjectionDashboard() {
         <CardContent>
           <TooltipProvider delayDuration={150}>
             <div className="overflow-x-auto">
-              <Table className="min-w-[920px]">
+              <Table className="min-w-[1020px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Mes</TableHead>
+                    <TableHead>Estado</TableHead>
                     <TableHead className="text-right">Ingresos</TableHead>
                     <TableHead className="text-right">Gastos</TableHead>
                     <TableHead className="text-right">Gasto simulado</TableHead>
@@ -768,6 +893,11 @@ export function ProjectionDashboard() {
                   {monthlyData.map((item) => (
                     <TableRow key={`${item.year}-${item.month}`}>
                       <TableCell className="font-medium">{getMonthName(item.month)} {item.year}</TableCell>
+                      <TableCell>
+                        <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${item.periodType === "actual" ? "bg-muted text-muted-foreground" : item.periodType === "current" ? "bg-primary/10 text-primary" : "bg-amber-100 text-amber-800"}`}>
+                          {item.periodType === "actual" ? "Real" : item.periodType === "current" ? "Mes actual" : "Estimado"}
+                        </span>
+                      </TableCell>
                       <TableCell className="text-right font-mono">{formatCurrency(item.income, currency)}</TableCell>
                       <TableCell className="text-right font-mono">
                         {item.essentialProjection > 0 ? (

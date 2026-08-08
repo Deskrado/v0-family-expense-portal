@@ -28,11 +28,14 @@ export type MonthlyProjectionPoint = {
   cumulativeSavings: number
   simulatedCumulativeSavings: number
   activeScenarioItems: ProjectionScenarioItem[]
+  periodType: "actual" | "current" | "projected"
 }
 
 type BuildProjectionInput = {
   year: number
   selectedMonth: number
+  asOfMonth?: number
+  asOfYear?: number
   startMonth?: number
   startYear?: number
   monthsAhead?: number
@@ -106,6 +109,8 @@ function getScenarioItemsForMonth(scenarios: ProjectionScenario[] | undefined, y
 export function buildAnnualProjection({
   year,
   selectedMonth,
+  asOfMonth = selectedMonth,
+  asOfYear = year,
   startMonth = 1,
   startYear = year,
   monthsAhead = 12,
@@ -119,7 +124,7 @@ export function buildAnnualProjection({
     (category) => category.type === "expense" && category.projection_method === "historical_average",
   )
   const projectedCategoryIds = new Set(projectedCategories.map((category) => category.id))
-  const selectedIndex = getPeriodIndex(year, selectedMonth)
+  const asOfIndex = getPeriodIndex(asOfYear, asOfMonth)
   let cumulativeSavings = 0
   let simulatedCumulativeSavings = 0
 
@@ -131,6 +136,7 @@ export function buildAnnualProjection({
     const pointYear = Math.floor(periodIndex / 12)
     const monthIndexInYear = month - 1
     const monthIndex = getPeriodIndex(pointYear, month)
+    const isHistorical = monthIndex < asOfIndex
     const categoriesWithActualExpense = new Set<string>()
     const point: MonthlyProjectionPoint = {
       month,
@@ -150,26 +156,29 @@ export function buildAnnualProjection({
       cumulativeSavings: 0,
       simulatedCumulativeSavings: 0,
       activeScenarioItems: [],
+      periodType: isHistorical ? "actual" : monthIndex === asOfIndex ? "current" : "projected",
     }
 
     for (const transaction of transactions || []) {
       if (getYearFromDateOnly(transaction.transaction_date) !== pointYear || getMonthIndexFromDateOnly(transaction.transaction_date) !== monthIndexInYear) continue
 
       const projectedAmount = transaction.status === "rejected" ? 0 : Number(transaction.amount || 0)
+      const actualAmount = transaction.status === "pending" || transaction.status === "rejected" ? 0 : projectedAmount
+      const includedAmount = isHistorical ? actualAmount : projectedAmount
       if (transaction.type === "income") {
-        point.income += projectedAmount
-        point.actualIncome += transaction.status === "pending" ? 0 : projectedAmount
+        point.income += includedAmount
+        point.actualIncome += actualAmount
         if (transaction.is_recurring) {
-          point.recurringIncome += projectedAmount
+          point.recurringIncome += includedAmount
         }
       } else {
-        point.expenses += projectedAmount
-        point.actualExpenses += transaction.status === "pending" ? 0 : projectedAmount
+        point.expenses += includedAmount
+        point.actualExpenses += actualAmount
         if (transaction.is_recurring) {
-          point.recurringExpenses += projectedAmount
+          point.recurringExpenses += includedAmount
         }
         if (transaction.credit_card_purchase_id && transaction.installment_number) {
-          point.installments += projectedAmount
+          point.installments += includedAmount
         }
         if (transaction.category_id && projectedCategoryIds.has(transaction.category_id)) {
           categoriesWithActualExpense.add(transaction.category_id)
@@ -177,20 +186,22 @@ export function buildAnnualProjection({
       }
     }
 
-    const recurringProjection = getRecurringProjectionForMonth(
-      transactions,
-      pointYear,
-      monthIndexInYear,
-      year,
-      selectedMonth,
-      recurringIncomeTemplates,
-    )
-    point.recurringIncome += recurringProjection.income
-    point.recurringExpenses += recurringProjection.expenses
-    point.income += recurringProjection.income
-    point.expenses += recurringProjection.expenses
+    if (!isHistorical) {
+      const recurringProjection = getRecurringProjectionForMonth(
+        transactions,
+        pointYear,
+        monthIndexInYear,
+        asOfYear,
+        asOfMonth,
+        recurringIncomeTemplates,
+      )
+      point.recurringIncome += recurringProjection.income
+      point.recurringExpenses += recurringProjection.expenses
+      point.income += recurringProjection.income
+      point.expenses += recurringProjection.expenses
+    }
 
-    for (const purchase of purchases || []) {
+    for (const purchase of isHistorical ? [] : purchases || []) {
       for (let installmentIndex = 0; installmentIndex < Number(purchase.total_installments || 0); installmentIndex += 1) {
         const installmentDueDate = getCreditCardInstallmentDueDate(purchase.start_date, purchase.credit_card, installmentIndex)
         if (getYearFromDateOnly(installmentDueDate) !== pointYear || getMonthIndexFromDateOnly(installmentDueDate) !== monthIndexInYear) continue
@@ -205,7 +216,7 @@ export function buildAnnualProjection({
       }
     }
 
-    if (monthIndex > selectedIndex) {
+    if (monthIndex > asOfIndex) {
       for (const category of projectedCategories) {
         if (categoriesWithActualExpense.has(category.id)) continue
 
@@ -220,7 +231,7 @@ export function buildAnnualProjection({
       point.expenses += point.essentialProjection
     }
 
-    point.activeScenarioItems = getScenarioItemsForMonth(scenarios, pointYear, month)
+    point.activeScenarioItems = isHistorical ? [] : getScenarioItemsForMonth(scenarios, pointYear, month)
     point.scenarioImpact = point.activeScenarioItems.reduce((total, item) => total + Number(item.amount || 0), 0)
     point.simulatedExpenses = point.expenses + point.scenarioImpact
     point.savings = point.income - point.expenses
