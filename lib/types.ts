@@ -220,7 +220,7 @@ export interface CreditCardPurchase {
   created_at: string
   credit_card?: CreditCard
   category?: Category
-  transactions?: Pick<Transaction, 'id' | 'installment_number' | 'transaction_date' | 'archived_at'>[]
+  transactions?: Pick<Transaction, 'id' | 'installment_number' | 'transaction_date' | 'amount' | 'budgeted_amount' | 'status' | 'archived_at'>[]
 }
 
 export interface CreditCardStatement {

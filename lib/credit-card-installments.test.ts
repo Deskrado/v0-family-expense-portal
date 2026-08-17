@@ -43,6 +43,9 @@ describe("buildCreditCardInstallmentTransactions", () => {
     expect(installments[2]).toMatchObject({
       amount: 67032.33,
       installment_number: 3,
+      status: "approved",
+      approved_at: "2026-07-06T12:00:00.000Z",
+      approved_by: "family-member-materializer",
       user_id: "purchase-owner",
       family_id: "family-1",
       created_by: "family-member-materializer",

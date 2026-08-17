@@ -1,5 +1,5 @@
 import type { CreditCard } from "@/lib/types"
-import { getCreditCardInstallmentDueDate, requiresCreditCardPaymentApproval } from "@/lib/credit-card-billing"
+import { getCreditCardInstallmentDueDate } from "@/lib/credit-card-billing"
 
 type InstallmentSource = {
   id: string
@@ -35,7 +35,6 @@ export function buildCreditCardInstallmentTransactions({
   return Array.from({ length: Number(purchase.total_installments) || 0 }, (_, index) => {
     const installmentNumber = index + 1
     const dueDate = getCreditCardInstallmentDueDate(purchase.start_date, card, index)
-    const requiresApproval = requiresCreditCardPaymentApproval(dueDate)
 
     return {
       user_id: purchase.user_id,
@@ -54,9 +53,11 @@ export function buildCreditCardInstallmentTransactions({
       credit_card_id: purchase.credit_card_id,
       credit_card_purchase_id: purchase.id,
       installment_number: installmentNumber,
-      status: requiresApproval ? "pending" as const : "approved" as const,
-      approved_at: requiresApproval ? null : generatedAt,
-      approved_by: requiresApproval ? null : actorUserId,
+      // Loading the purchase already confirms every installment. Statement
+      // payment approval is reserved for recurring card debits and manual rows.
+      status: "approved" as const,
+      approved_at: generatedAt,
+      approved_by: actorUserId,
       notes: purchase.notes || null,
       metadata: {
         source: "credit_card_installment",

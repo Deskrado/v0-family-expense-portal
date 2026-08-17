@@ -14,6 +14,8 @@ import {
   useUserSettings,
 } from "@/components/dashboard/use-dashboard-data"
 import { formatCurrency } from "@/lib/currency"
+import { getInstallmentAmountInPeriod, hasInstallmentInPeriod } from "@/lib/credit-card-purchase-period"
+import { getStatementTransactionAmount, isStatementPaymentAdjustment } from "@/lib/credit-card-statement-calculations"
 import { getMonthIndexFromDateOnly, getYearFromDateOnly } from "@/lib/date-only"
 import { formatDateOnlyForDisplay, getCreditCardStatementDueDate } from "@/lib/credit-card-billing"
 import type { CreditCard, CreditCardPurchase, CreditCardStatement, Transaction } from "@/lib/types"
@@ -167,9 +169,12 @@ export function CreditCardManagement() {
   }, [cards, search])
 
   const filteredPurchases = useMemo(() => {
-    if (consumptionCardFilter === "all") return purchases || []
-    return (purchases || []).filter((purchase) => purchase.credit_card_id === consumptionCardFilter)
-  }, [consumptionCardFilter, purchases])
+    const periodPurchases = (purchases || []).filter((purchase) =>
+      hasInstallmentInPeriod(purchase, statementYear, statementMonth),
+    )
+    if (consumptionCardFilter === "all") return periodPurchases
+    return periodPurchases.filter((purchase) => purchase.credit_card_id === consumptionCardFilter)
+  }, [consumptionCardFilter, purchases, statementMonth, statementYear])
 
   const defaultCurrencyId = settings?.default_currency_id || currencies?.find((currency) => currency.code === "ARS")?.id || currencies?.[0]?.id || ""
   const recurringCardDebits = useMemo(() => {
@@ -209,7 +214,9 @@ export function CreditCardManagement() {
   const statementConsumptions = useMemo(() => {
     const rows = (statementTransactions || [])
       .filter((transaction) =>
-        transaction.status !== "rejected" && isTransactionInMonth(transaction, statementYear, statementMonth),
+        transaction.status !== "rejected" &&
+        !isStatementPaymentAdjustment(transaction) &&
+        isTransactionInMonth(transaction, statementYear, statementMonth),
       )
       .sort((left, right) =>
         right.transaction_date.localeCompare(left.transaction_date) ||
@@ -632,7 +639,7 @@ export function CreditCardManagement() {
                     <TableHead>Tarjeta</TableHead>
                     <TableHead>Origen</TableHead>
                     <TableHead>Estado</TableHead>
-                    <TableHead className="text-right">Previsto</TableHead>
+                    <TableHead className="text-right">Importe</TableHead>
                     <TableHead className="w-10"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -654,7 +661,7 @@ export function CreditCardManagement() {
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {formatCurrency(
-                          Number(transaction.budgeted_amount ?? transaction.amount ?? 0),
+                          getStatementTransactionAmount(transaction),
                           transaction.currency || transaction.credit_card?.currency,
                         )}
                       </TableCell>
@@ -739,7 +746,10 @@ export function CreditCardManagement() {
                         Total {formatCurrency(Number(purchase.total_amount), purchase.credit_card?.currency)}
                       </span>
                       <span className="font-mono text-sm font-semibold">
-                        {formatCurrency(Number(purchase.installment_amount), purchase.credit_card?.currency)}/cuota
+                        {formatCurrency(
+                          getInstallmentAmountInPeriod(purchase, statementYear, statementMonth) ?? Number(purchase.installment_amount),
+                          purchase.credit_card?.currency,
+                        )}/cuota
                       </span>
                     </div>
                   </div>
@@ -774,7 +784,10 @@ export function CreditCardManagement() {
                           {formatCurrency(Number(purchase.total_amount), purchase.credit_card?.currency)}
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {formatCurrency(Number(purchase.installment_amount), purchase.credit_card?.currency)}
+                          {formatCurrency(
+                            getInstallmentAmountInPeriod(purchase, statementYear, statementMonth) ?? Number(purchase.installment_amount),
+                            purchase.credit_card?.currency,
+                          )}
                         </TableCell>
                         <TableCell>
                           <DropdownMenu>

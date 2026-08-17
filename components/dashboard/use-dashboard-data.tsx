@@ -411,7 +411,7 @@ export function useCreditCardPurchases() {
         *,
         credit_card:credit_cards(*, currency:currencies(*)),
         category:categories(*),
-        transactions(id, installment_number, transaction_date, archived_at)
+        transactions(id, installment_number, transaction_date, amount, budgeted_amount, status, archived_at)
       `)
       .eq("is_active", true)
       .order("start_date", { ascending: false })
