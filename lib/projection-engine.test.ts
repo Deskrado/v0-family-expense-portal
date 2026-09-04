@@ -195,4 +195,61 @@ describe("buildAnnualProjection", () => {
     })
     expect(result[1].cumulativeSavings).toBe(300)
   })
+
+  it("mantiene el mes actual en vivo y usa cierres para el saldo arrastrado", () => {
+    const points = buildAnnualProjection({
+      year: 2026,
+      selectedMonth: 2,
+      asOfYear: 2026,
+      asOfMonth: 2,
+      startYear: 2026,
+      startMonth: 1,
+      monthsAhead: 2,
+      transactions: [
+        transaction({ amount: 100, transaction_date: "2026-01-10" }),
+        transaction({ amount: 50, transaction_date: "2026-02-10" }),
+      ],
+    })
+    const closures: MonthlyClosure[] = [
+      {
+        id: "january-closure",
+        user_id: "user-id",
+        family_id: null,
+        year: 2026,
+        month: 1,
+        income_total: 500,
+        expense_total: 200,
+        savings_total: 300,
+        cash_total: 0,
+        investments_total: 0,
+        foreign_currency_total: 0,
+        snapshot: {},
+        closed_by: null,
+        closed_at: "2026-02-01T00:00:00.000Z",
+        created_at: "2026-02-01T00:00:00.000Z",
+      },
+      {
+        id: "february-closure",
+        user_id: "user-id",
+        family_id: null,
+        year: 2026,
+        month: 2,
+        income_total: 900,
+        expense_total: 100,
+        savings_total: 800,
+        cash_total: 0,
+        investments_total: 0,
+        foreign_currency_total: 0,
+        snapshot: {},
+        closed_by: null,
+        closed_at: "2026-03-01T00:00:00.000Z",
+        created_at: "2026-03-01T00:00:00.000Z",
+      },
+    ]
+
+    const result = applyMonthlyClosures(points, closures)
+
+    expect(result[0]).toMatchObject({ savings: 300, cumulativeSavings: 300, isClosed: true })
+    expect(result[1]).toMatchObject({ savings: -50, cumulativeSavings: 250, isClosed: false })
+  })
 })

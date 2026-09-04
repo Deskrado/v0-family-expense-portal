@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/client"
 import { useEffect } from "react"
 import useSWR, { mutate } from "swr"
-import { invalidateCaches } from "@/lib/swr-cache"
+import { invalidateCacheByPrefix, invalidateCaches } from "@/lib/swr-cache"
 import { getMonthRange } from "@/lib/currency"
 import { useDashboard } from "./dashboard-context"
 import type {
@@ -274,6 +274,7 @@ export function useCreditCardStatements(year: number, month: number) {
       .then((response) => {
         if (Number(response.created || 0) > 0) {
           invalidateCaches(["credit-card-statements", "credit-card-purchases", "credit-card-statement-transactions"])
+          invalidateCacheByPrefix("transactions")
         }
       })
       .catch((error) => {
@@ -337,8 +338,8 @@ export function useMonthlyTransactions() {
     Promise.all(jobs.map((job) => job.request))
       .then((responses) => {
         if (responses.some((response) => Number(response.created || 0) > 0)) {
-          mutate(key)
-          mutate((cacheKey) => Array.isArray(cacheKey) && cacheKey[0] === "credit-card-purchases")
+          invalidateCacheByPrefix("transactions")
+          invalidateCaches(["credit-card-purchases"])
         }
       })
       .catch((error) => {

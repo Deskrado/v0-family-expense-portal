@@ -12,6 +12,7 @@ import {
   useCurrencies,
   useFxQuotes,
   useInvestments,
+  useMonthlyClosures,
   useMonthlySummary,
   useMonthlyTransactions,
   usePortfolioSnapshots,
@@ -29,13 +30,14 @@ import Link from "next/link"
 import type { GroupSummary } from "@/lib/types"
 import { getWealthBreakdown } from "@/lib/wealth-summary"
 import { canSeeModule } from "@/lib/family-visibility"
-import { buildAnnualProjection } from "@/lib/projection-engine"
+import { applyMonthlyClosures, buildAnnualProjection } from "@/lib/projection-engine"
 
 export default function DashboardPage() {
   const { selectedMonth, selectedYear } = useDashboard()
   const { summary, isLoading: summaryLoading } = useMonthlySummary()
   const { data: monthlyTransactions, isLoading: transactionsLoading } = useMonthlyTransactions()
   const { data: yearlyTransactions, isLoading: yearlyLoading } = useYearlyTransactions()
+  const { data: monthlyClosures, isLoading: closuresLoading } = useMonthlyClosures()
   const { data: creditCardPurchases, isLoading: purchasesLoading } = useCreditCardPurchases()
   const { data: recurringIncomeTemplates } = useRecurringIncomeTemplates()
   const { data: categories } = useCategories()
@@ -48,7 +50,7 @@ export default function DashboardPage() {
   const { data: settings } = useUserSettings()
   const { data: visibility } = useFamilyVisibility()
 
-  const isLoading = summaryLoading || transactionsLoading || yearlyLoading || purchasesLoading
+  const isLoading = summaryLoading || transactionsLoading || yearlyLoading || purchasesLoading || closuresLoading
   const currency = settings?.default_currency || currencies?.find((item) => item.code === "ARS") || currencies?.[0] || null
   const canViewInvestments = canSeeModule("investments", visibility?.membership, visibility?.permissions)
   // Process transactions for expense/income table
@@ -102,10 +104,11 @@ export default function DashboardPage() {
     recurringIncomeTemplates,
     categories,
   })
+  const accountingMonthlyData = applyMonthlyClosures(monthlyData, monthlyClosures)
 
   const configuredInitialBalance = settings?.initial_balance || 0
-  const priorMonthsSavings = monthlyData.slice(0, selectedMonth - 1).reduce((total, item) => total + item.savings, 0)
-  const previousMonthSavings = monthlyData[selectedMonth - 2]?.savings || 0
+  const priorMonthsSavings = accountingMonthlyData.slice(0, selectedMonth - 1).reduce((total, item) => total + item.savings, 0)
+  const previousMonthSavings = accountingMonthlyData[selectedMonth - 2]?.savings || 0
   const yearToDateSavings = priorMonthsSavings + summary.savings
   const monthInitialBalance = configuredInitialBalance + priorMonthsSavings
   const cashBalance = monthInitialBalance + summary.savings
@@ -186,7 +189,7 @@ export default function DashboardPage() {
 
           {/* Annual Projection */}
           <AnnualProjectionChart
-            data={monthlyData}
+            data={accountingMonthlyData}
             currentMonth={selectedMonth}
             currentYear={selectedYear}
             currency={currency}
