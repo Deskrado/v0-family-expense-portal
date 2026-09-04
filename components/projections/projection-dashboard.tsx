@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/tooltip"
 import { formatCompactCurrency, formatCurrency, getCurrentMonth, getCurrentYear, getMonthName } from "@/lib/currency"
 import { applyMonthlyClosures, buildAnnualProjection, getProjectionAlerts } from "@/lib/projection-engine"
+import { getPreviousMonthClosingBalance } from "@/lib/monthly-balance"
 import { getWealthBreakdown } from "@/lib/wealth-summary"
 import { buildProjectionSearchParams, parseProjectionPeriod } from "@/lib/projection-url-state"
 import type { Category, Group, ProjectionScenario, ProjectionScenarioItem, Transaction } from "@/lib/types"
@@ -459,19 +460,6 @@ export function ProjectionDashboard() {
     baseComparisonData,
     hasExpenseFilters ? [] : closures,
   ), [baseComparisonData, closures, hasExpenseFilters])
-  const annualMonthlyData = useMemo(() => buildAnnualProjection({
-    year: today.year,
-    selectedMonth: today.month,
-    asOfMonth: today.month,
-    asOfYear: today.year,
-    startMonth: 1,
-    startYear: selectedYear,
-    transactions: yearlyTransactions,
-    purchases,
-    recurringIncomeTemplates,
-    categories,
-    scenarios,
-  }), [categories, purchases, recurringIncomeTemplates, scenarios, selectedYear, today.month, today.year, yearlyTransactions])
 
   const projectedTotal = monthlyData.reduce((total, item) => total + item.savings, 0)
   const projectedExpensesTotal = monthlyData.reduce((total, item) => total + item.expenses, 0)
@@ -523,8 +511,13 @@ export function ProjectionDashboard() {
   const negativeMonthsCount = monthlyData.filter((point) => point.simulatedSavings < 0).length
   const biggestExpenseMonth = monthlyData.reduce((current, item) => item.simulatedExpenses > current.simulatedExpenses ? item : current, monthlyData[0])
   const lowestLiquidityMonth = monthlyData.reduce((current, item) => item.simulatedSavings < current.simulatedSavings ? item : current, monthlyData[0])
-  const priorMonthsSavings = annualMonthlyData.slice(0, selectedMonth - 1).reduce((total, item) => total + item.savings, 0)
-  const cashBalance = Number(settings?.initial_balance || 0) + priorMonthsSavings + (selectedMonthPoint?.savings || 0)
+  const monthOpeningBalance = getPreviousMonthClosingBalance({
+    year: selectedYear,
+    month: selectedMonth,
+    initialBalance: Number(settings?.initial_balance || 0),
+    closures,
+  })
+  const cashBalance = monthOpeningBalance + (selectedMonthPoint?.savings || 0)
   const wealth = getWealthBreakdown({
     cashBalance,
     investments,

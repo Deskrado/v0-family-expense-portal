@@ -31,13 +31,21 @@ import type { GroupSummary } from "@/lib/types"
 import { getWealthBreakdown } from "@/lib/wealth-summary"
 import { canSeeModule } from "@/lib/family-visibility"
 import { applyMonthlyClosures, buildAnnualProjection } from "@/lib/projection-engine"
+import { getMonthCashBalances, getPreviousPeriod } from "@/lib/monthly-balance"
 
 export default function DashboardPage() {
   const { selectedMonth, selectedYear } = useDashboard()
+  const previousPeriod = getPreviousPeriod({ year: selectedYear, month: selectedMonth })
+  const closureRangeStart = selectedMonth === 1 ? previousPeriod : { year: selectedYear, month: 1 }
   const { summary, isLoading: summaryLoading } = useMonthlySummary()
   const { data: monthlyTransactions, isLoading: transactionsLoading } = useMonthlyTransactions()
   const { data: yearlyTransactions, isLoading: yearlyLoading } = useYearlyTransactions()
-  const { data: monthlyClosures, isLoading: closuresLoading } = useMonthlyClosures()
+  const { data: monthlyClosures, isLoading: closuresLoading } = useMonthlyClosures({
+    fromYear: closureRangeStart.year,
+    fromMonth: closureRangeStart.month,
+    toYear: selectedYear,
+    toMonth: selectedMonth,
+  })
   const { data: creditCardPurchases, isLoading: purchasesLoading } = useCreditCardPurchases()
   const { data: recurringIncomeTemplates } = useRecurringIncomeTemplates()
   const { data: categories } = useCategories()
@@ -110,8 +118,13 @@ export default function DashboardPage() {
   const priorMonthsSavings = accountingMonthlyData.slice(0, selectedMonth - 1).reduce((total, item) => total + item.savings, 0)
   const previousMonthSavings = accountingMonthlyData[selectedMonth - 2]?.savings || 0
   const yearToDateSavings = priorMonthsSavings + summary.savings
-  const monthInitialBalance = configuredInitialBalance + priorMonthsSavings
-  const cashBalance = monthInitialBalance + summary.savings
+  const { initialBalance: monthInitialBalance, finalBalance: cashBalance } = getMonthCashBalances({
+    year: selectedYear,
+    month: selectedMonth,
+    initialBalance: configuredInitialBalance,
+    monthlySavings: summary.savings,
+    closures: monthlyClosures,
+  })
   const wealthBreakdown = getWealthBreakdown({
     cashBalance,
     investments,
